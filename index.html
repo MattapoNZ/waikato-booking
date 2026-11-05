@@ -502,7 +502,10 @@ const bookingPolicy = {
 
 const SUPABASE_URL = 'https://yimjmbarxnmakpswbrhz.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_vJ2mi3Ig-2fK_rBQIGA6Zw_4wt8eLpE'; // public key — safe in the page
-const db = (window.__mockSupabase || window.supabase).createClient(SUPABASE_URL, SUPABASE_KEY);
+// lock: no-op — supabase-js's cross-tab lock can hang sign-in forever on phones (several tabs / home-screen app)
+const db = (window.__mockSupabase || window.supabase).createClient(SUPABASE_URL, SUPABASE_KEY,
+  { auth: { persistSession: true, autoRefreshToken: true, lock: async (_n, _t, fn) => fn() } });
+const withTimeout = (pr, ms, what) => Promise.race([pr, new Promise((_, rej) => setTimeout(() => rej(new Error(what + ' timed out — check your signal and try again')), ms))]);
 
 // ---------- helpers ----------
 const $ = id => document.getElementById(id);
@@ -526,26 +529,36 @@ const S = { view: 'run', date: null, sessions: [], bookings: [], sel: null, extr
 
 // ---------- auth ----------
 async function start() {
-  const { data } = await db.auth.getSession();
-  if (!data.session) return renderLogin();
-  const { data: me, error } = await db.from('staff').select('name').limit(1);
-  if (error || !me || !me.length) return renderLogin('This login is not set up as staff yet. Run the staff insert in Supabase, then log in again.');
-  S.me = me[0].name;
-  await loadSessions();
-  render();
+  try {
+    const { data } = await withTimeout(db.auth.getSession(), 15000, 'Checking login');
+    if (!data.session) return renderLogin();
+    const { data: me, error } = await withTimeout(db.from('staff').select('name').limit(1), 15000, 'Staff check');
+    if (error) return renderLogin('Staff check failed: ' + errMsg(error));
+    if (!me || !me.length) return renderLogin('Logged in, but this login is not set up as staff yet. Run the staff insert in Supabase, then log in again.');
+    S.me = me[0].name;
+    await withTimeout(loadSessions(), 20000, 'Loading sessions');
+    render();
+  } catch (e) { renderLogin(errMsg(e)); }
 }
 function renderLogin(msg) {
   $('app').innerHTML = `<form class="login panel" id="loginForm">
     <h1>Waikato Interlocks</h1><div class="empty">Staff login</div>
     ${msg ? `<div class="alert">${esc(msg)}</div>` : ''}
-    <label class="label" for="em">Email</label><input id="em" type="email" autocomplete="username" required>
+    <label class="label" for="em">Email</label><input id="em" type="email" autocomplete="username" autocapitalize="off" spellcheck="false" required>
     <label class="label" for="pw">Password</label><input id="pw" type="password" autocomplete="current-password" required>
-    <button class="btn brand" id="loginBtn">Log in</button></form>`;
+    <button class="btn brand" id="loginBtn">Log in</button>
+    <div id="loginMsg" class="alert" hidden></div>
+    <div class="empty" style="font-size:.75rem;margin-top:10px">build 2026-11-05 19:42 UTC</div></form>`;
+  const btn = $('loginBtn'), box = $('loginMsg');
+  const fail = m => { btn.disabled = false; btn.textContent = 'Log in'; box.textContent = m; box.hidden = false; };
   $('loginForm').onsubmit = async e => {
-    e.preventDefault(); $('loginBtn').disabled = true;
-    const { error } = await db.auth.signInWithPassword({ email: $('em').value.trim(), password: $('pw').value });
-    if (error) { $('loginBtn').disabled = false; return toast(error.message, true); }
-    start();
+    e.preventDefault(); box.hidden = true; btn.disabled = true; btn.textContent = 'Signing in…';
+    try {
+      const { error } = await withTimeout(db.auth.signInWithPassword({ email: $('em').value.trim().toLowerCase(), password: $('pw').value }), 15000, 'Login');
+      if (error) return fail(error.message === 'Invalid login credentials' ? 'Wrong email or password.' : error.message);
+      btn.textContent = 'Loading…';
+      await start();
+    } catch (err) { fail(errMsg(err)); }
   };
 }
 
