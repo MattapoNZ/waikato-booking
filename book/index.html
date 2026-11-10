@@ -522,7 +522,16 @@ const monthlyOn = d => allowedServices(eng(), services, d).find(s => s.group ===
 const removalOn = d => allowedServices(eng(), services, d).find(s => s.group === 'removal');
 
 // ---------- start / login ----------
+// Errors from Google / Supabase come back in the address bar; show them instead of a silent bounce.
+function urlAuthError() {
+  const q = new URLSearchParams(location.search.slice(1) + '&' + location.hash.slice(1));
+  const e = q.get('error_description') || q.get('error');
+  if (e) history.replaceState(null, '', location.pathname);
+  return e ? 'Sign-in did not finish: ' + e.replace(/\+/g, ' ') + '. Please try again, or text Matt on ' + MATT + '.' : null;
+}
 async function start() {
+  const authErr = urlAuthError();
+  if (authErr) return renderLogin(authErr);
   try {
     const { data } = await withTimeout(db.auth.getSession(), 15000, 'Checking login');
     if (!data.session) return renderLogin();
@@ -537,7 +546,7 @@ async function start() {
 async function renderLogin(msg) {
   $('app').innerHTML = `<h1>Waikato Interlocks</h1><p class="muted">Book your interlock service, see your dates and what you pay.</p>
     <div class="card" id="lg">${msg ? `<div class="note bad">${esc(msg)}</div>` : ''}<p class="muted">Checking sign-in options…</p></div>
-    <p class="muted" style="text-align:center;margin-top:16px">Installs and anything urgent: text or call Matt on <a href="tel:${MATT.replace(/ /g,'')}">${MATT}</a></p>`;
+    <p class="muted" style="text-align:center;margin-top:16px">Installs and anything urgent: text or call Matt on <a href="tel:${MATT.replace(/ /g,'')}">${MATT}</a><br><a href="../privacy/">Privacy policy</a></p>`;
   let ext = {};
   try { ext = (await (await fetch(SUPABASE_URL + '/auth/v1/settings', { headers: { apikey: SUPABASE_KEY } })).json()).external || {}; } catch (e) {}
   if (window.__mockSupabase) ext = window.__mockSupabase.providers || ext;
@@ -614,6 +623,42 @@ function render() {
   ({ home: viewHome, book: viewBook, more: viewMore, me: viewMe })[S.tab]();
 }
 
+// ---------- add to calendar ----------
+// NZ local date + minutes -> UTC Date (handles daylight saving via the browser's time zone data)
+function nzToUtc(date, mins) {
+  const [y, m, d] = date.split('-').map(Number);
+  const want = Date.UTC(y, m - 1, d, Math.floor(mins / 60), mins % 60);
+  let t = want;
+  for (let i = 0; i < 2; i++) {
+    const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: 'Pacific/Auckland', hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+      .formatToParts(new Date(t)).map(x => [x.type, x.value]));
+    const shown = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute);
+    t += want - shown;
+  }
+  return new Date(t);
+}
+const icsTime = dt => dt.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+function calEvent(b, est) {
+  const l = LOC(b.location_id), rem = b.kind === 'removal', fl = rem && b.time_locked === false;
+  const start = nzToUtc(b.session_date, est), end = new Date(start.getTime() + (rem ? 15 : 10) * 60000);
+  const title = 'Interlock ' + (rem ? (b.details?.temporary ? 'temporary removal' : 'removal') : 'service') + ' – Waikato Interlocks';
+  const desc = (fl ? 'Approximate time – it can move later and is confirmed on the morning. ' : '') +
+    (b.price_cents ? 'To pay on the day: ' + money(b.price_cents / 100) + '. ' : '') + 'Questions: text Matt on ' + MATT + '.';
+  return { title, desc, where: l.name + (l.address ? ', ' + l.address : ''), start, end, uid: b.id + '@waikato-interlocks' };
+}
+function downloadIcs(ev) {
+  const esc2 = t => String(t).replace(/[\\,;]/g, m => '\\' + m).replace(/\n/g, '\\n');
+  const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Waikato Interlocks//Booking//EN', 'METHOD:PUBLISH', 'BEGIN:VEVENT',
+    'UID:' + ev.uid, 'DTSTAMP:' + icsTime(new Date()), 'DTSTART:' + icsTime(ev.start), 'DTEND:' + icsTime(ev.end),
+    'SUMMARY:' + esc2(ev.title), 'LOCATION:' + esc2(ev.where), 'DESCRIPTION:' + esc2(ev.desc),
+    'BEGIN:VALARM', 'TRIGGER:-PT2H', 'ACTION:DISPLAY', 'DESCRIPTION:' + esc2(ev.title), 'END:VALARM',
+    'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
+  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([ics], { type: 'text/calendar' })), download: 'interlock-booking.ics' });
+  document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+const googleCalUrl = ev => 'https://calendar.google.com/calendar/render?action=TEMPLATE&text=' + encodeURIComponent(ev.title) +
+  '&dates=' + icsTime(ev.start) + '/' + icsTime(ev.end) + '&location=' + encodeURIComponent(ev.where) + '&details=' + encodeURIComponent(ev.desc);
+
 function bookingCard(b) {
   const l = LOC(b.location_id), rem = b.kind === 'removal', fl = rem && b.time_locked === false;
   const est = fl ? (S.rTimes.find(x => x.booking_id === b.id) || {}).est_min ?? b.start_min : b.start_min;
@@ -625,9 +670,15 @@ function bookingCard(b) {
     <div class="big t" style="color:var(--brand)">${fl ? 'about ' : ''}${fmtTime(est)}</div>
     <p><b>${esc(l.name)}</b><br>${mapLink(l)}</p><p>${state} &nbsp; <b>${money(b.price_cents / 100)}</b> ${b.price_cents ? '<span class="muted">to pay on the day</span>' : ''}</p>
     ${fl ? '<p class="muted">This time can move later if services are booked ahead of you. It is locked in on the morning.</p>' : ''}
+    <div class="chips"><button class="chip" data-ics="${b.id}">Add to calendar</button><a class="chip" style="text-decoration:none" target="_blank" rel="noopener" href="${esc(googleCalUrl(calEvent(b, est)))}">Google Calendar</a></div>
     <button class="btn ghost" data-cancel="${b.id}">Cancel ${rem ? 'this request' : 'this booking'}</button></div>`;
 }
 function wireCancel() {
+  document.querySelectorAll('[data-ics]').forEach(x => x.onclick = () => {
+    const b = S.bookings.find(y => y.id === x.dataset.ics); if (!b) return;
+    const est = b.kind === 'removal' && b.time_locked === false ? ((S.rTimes.find(r => r.booking_id === b.id) || {}).est_min ?? b.start_min) : b.start_min;
+    downloadIcs(calEvent(b, est));
+  });
   document.querySelectorAll('[data-cancel]').forEach(b => b.onclick = async () => {
     if (b.dataset.sure !== '1') { b.dataset.sure = '1'; b.textContent = 'Tap again to cancel'; b.style.borderColor = 'var(--bad)'; return; }
     b.disabled = true; const { error } = await db.rpc('cancel_my_booking', { p_booking: b.dataset.cancel });
@@ -777,8 +828,8 @@ function viewMe() {
     <div class="card"><h2>Apply date</h2><p>Currently <b>${yDate(d.exitEligible)}</b>${S.me.apply_date ? ' (the date NZTA gave you)' : ' (12 months after install)'}.</p>
       <p class="muted">If you applied and NZTA declined it, they gave you a new date. Enter it here so your bookings line up with it.</p>
       <form id="adF"><label class="f" for="ad">New date from NZTA</label><input id="ad" type="date" value="${esc(S.me.apply_date || '')}"><div id="adErr" class="note bad" hidden></div><button class="btn brand">Save date</button></form></div>
-    <div class="card"><h2>Keep this handy</h2><p class="muted">In your browser menu choose <b>Add to Home screen</b> to open this like an app.</p><button class="btn ghost" id="out">Sign out</button></div>
-    <p class="muted" style="text-align:center;font-size:.75rem">build 2026-11-10 05:34 UTC</p>`;
+    <div class="card"><h2>Keep this handy</h2><p class="muted">In your browser menu choose <b>Add to Home screen</b> to open this like an app.</p><button class="btn ghost" id="out">Sign out</button><p class="muted" style="text-align:center"><a href="../privacy/">Privacy policy</a></p></div>
+    <p class="muted" style="text-align:center;font-size:.75rem">build 2026-11-10 09:23 UTC</p>`;
   $('out').onclick = signOut;
   $('adF').onsubmit = async ev => {
     ev.preventDefault();
