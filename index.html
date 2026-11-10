@@ -178,8 +178,8 @@ function sessionsForRange({ schedules, exceptions = [], locations = [] }, fromDa
         start,
         end,
         slotMins: s.slotMins || 5,
-        // Removals queue AFTER servicing finishes: end .. end + removalSlots × removalMins
-        removalSlots: s.removalSlots ?? 2,
+        // Removals are floating placeholders (see removalEstimates): up to removalSlots per session
+        removalSlots: s.removalSlots ?? 3,
         removalMins: s.removalMins ?? 15,
         notes,
       });
@@ -206,25 +206,61 @@ function leadTimeOk(date, t, now, cutoffMins) {
   return minsUntil >= cutoffMins;
 }
 
-// Removal queue times: straight after the service window, one removal after another.
-// Cambridge Tue (service ends 10:10, 2 removals of 15 min) -> 10:10, 10:25
-function removalTimes(session) {
-  const times = [];
-  for (let i = 0; i < session.removalSlots; i++) times.push(session.end + i * session.removalMins);
-  return times;
+// ---------- removals: floating placeholders ----------
+// A removal does NOT hold a time. It is a placeholder that sits at the first free gap in the
+// session and slides later whenever a service or violation reset books that time:
+//   removal requested when 11:30 is free -> shows "about 11:30"; someone books a service at 11:30
+//   -> the removal now shows "about 11:35", and so on.
+// It only becomes a solid, held time once Matt has approved it AND times are locked on the
+// morning of the session. Until then services always win.
+// booking fields used: { id, start, duration, status, kind, timeLocked, approvedAt, createdAt }
+//   timeLocked === false  -> floating removal;  anything else -> fixed (holds its time)
+const isFloating = b => b.kind === 'removal' && b.timeLocked === false && b.status !== 'cancelled';
+// timeLocked === false on anything else (e.g. a walk-in sale) means it is on the sheet but holds no slot
+const isFixed = b => b.status !== 'cancelled' && b.timeLocked !== false;
+
+// Estimated time for every floating removal in this session: Map(bookingId -> minutes).
+// Approved ones are placed first, then in the order they were requested.
+function removalEstimates(session, bookings, { onlyApproved = false, extra = 0 } = {}) {
+  const sess = bookings.filter(b => b.sessionId === session.id);
+  const fixed = sess.filter(isFixed).map(b => ({ start: b.start, duration: b.duration, status: 'confirmed' }));
+  const floaters = sess.filter(isFloating).filter(b => !onlyApproved || b.approvedAt)
+    .map((b, i) => ({ b, i }))
+    .sort((x, y) => (!x.b.approvedAt - !y.b.approvedAt) || String(x.b.createdAt || '').localeCompare(String(y.b.createdAt || '')) || x.i - y.i)
+    .map(x => x.b);
+  const out = new Map();
+  const place = () => {
+    let t = session.start;
+    while (!isFree(t, session.removalMins, fixed)) t += session.slotMins;
+    fixed.push({ start: t, duration: session.removalMins, status: 'confirmed' });
+    return t;
+  };
+  for (const b of floaters) out.set(b.id, place());
+  for (let i = 0; i < extra; i++) out.set(`new${i}`, place());   // where the NEXT request would sit
+  return out;
+}
+
+// Morning of the session: approved removals take a solid time and now hold it. Unapproved ones stay floating.
+function lockRemovals(session, bookings) {
+  const est = removalEstimates(session, bookings, { onlyApproved: true });
+  return bookings.map(b => est.has(b.id) ? { ...b, start: est.get(b.id), timeLocked: true, status: 'confirmed' } : b);
 }
 
 // The ONE time offered to a customer for this session, or null if full.
-// kind 'removal' uses the removal queue after servicing; everything else uses the 5-min service slots.
+// Services / resets: earliest 5-min slot not held by a service or a LOCKED removal (floating removals are ignored).
+// Removals: an approximate time only — null once the session has its limit of removals (default 3).
 // opts.now = { date, minutes } (NZ local), opts.cutoffMins = min lead time (Timely: 3 hours)
 function nextOfferedSlot(session, bookings, durationMins = session.slotMins, opts = {}) {
-  const removal = opts.kind === 'removal';
-  const sessBookings = bookings.filter(b => b.sessionId === session.id && (b.kind === 'removal') === removal);
+  const sess = bookings.filter(b => b.sessionId === session.id);
   const cutoff = opts.cutoffMins ?? 180;
-  const dur = removal ? session.removalMins : durationMins;
-  const times = removal ? removalTimes(session) : slotTimes(session, durationMins);
-  for (const t of times) {
-    if (!isFree(t, dur, sessBookings)) continue;
+  if (opts.kind === 'removal') {
+    if (sess.filter(b => b.kind === 'removal' && b.status !== 'cancelled').length >= session.removalSlots) return null;
+    if (opts.now && !leadTimeOk(session.date, session.start, opts.now, cutoff)) return null;
+    return removalEstimates(session, bookings, { extra: 1 }).get('new0');
+  }
+  const fixed = sess.filter(isFixed);
+  for (const t of slotTimes(session, durationMins)) {
+    if (!isFree(t, durationMins, fixed)) continue;
     if (opts.now && !leadTimeOk(session.date, t, opts.now, cutoff)) continue;
     return t;
   }
@@ -243,7 +279,8 @@ function customerAvailability(data, bookings, { fromDate, horizonDays = 21, dura
 
 // Create a booking — re-checks the slot so two people tapping at once can't both get 9:25.
 // (In the real backend this is enforced by a unique index on (location, date, start) inside a transaction.)
-// Services and resets are auto-confirmed. Removals are pencilled-in for Matt to accept.
+// Services and resets are auto-confirmed and hold their time. Removals are floating placeholders:
+// pencilled, no held time, until Matt approves and times are locked on the morning.
 function book(session, bookings, { customerId, serviceId, kind = 'service', durationMins = 5, requestedStart, now, cutoffMins = 180, customer, details = {} }) {
   if (kind === 'removal' && customer) {
     const req = removalRequirements(customer, session.date);
@@ -257,11 +294,11 @@ function book(session, bookings, { customerId, serviceId, kind = 'service', dura
   }
   const offered = nextOfferedSlot(session, bookings, durationMins, { now, cutoffMins, kind });
   if (offered === null) return { ok: false, reason: kind === 'removal' ? 'No removal spots left that day' : 'Session full' };
-  if (requestedStart !== undefined && requestedStart !== offered) {
+  if (kind !== 'removal' && requestedStart !== undefined && requestedStart !== offered) {
     return { ok: false, reason: 'That time was just taken', offered };
   }
   const booking = {
-    id: `bk_${session.id}_${kind}_${offered}_${customerId}`,
+    id: `bk_${session.id}_${kind}_${kind === 'removal' ? 'float' : offered}_${customerId}`,
     sessionId: session.id,
     locationId: session.locationId,
     date: session.date,
@@ -271,6 +308,8 @@ function book(session, bookings, { customerId, serviceId, kind = 'service', dura
     serviceId,
     kind,
     status: kind === 'removal' ? 'pencilled' : 'confirmed',
+    timeLocked: kind !== 'removal',   // removals float until approved + locked
+    approvedAt: null,
     details,
   };
   return { ok: true, booking };
@@ -377,7 +416,7 @@ function removalRequirements(c, sessionDate) {
 // Changeover: moving the interlock to another vehicle. A request (no slot) — Matt arranges the time.
 // Vehicle details are required so he can tell if it's a standard or complex install.
 const EUROPEAN = ['audi', 'bmw', 'mercedes', 'mercedes-benz', 'volkswagen', 'vw', 'volvo', 'skoda', 'peugeot', 'citroen', 'renault', 'mini', 'porsche', 'land rover', 'jaguar', 'fiat', 'alfa romeo', 'seat', 'cupra', 'opel', 'saab'];
-function changeoverRequest(c, v = {}, { today, preferredLocationId = null, preferredDays = '', notes = '' } = {}) {
+function changeoverRequest(c, v = {}, { today, preferredLocationId = null, preferredDays = '', siteAddress = '', approxTime = '', notes = '' } = {}) {
   const errors = {};
   const rego = String(v.rego || '').toUpperCase().replace(/\s+/g, '');
   if (!/^[A-Z0-9]{1,6}$/.test(rego)) errors.rego = 'Enter the plate (up to 6 letters/numbers)';
@@ -387,6 +426,9 @@ function changeoverRequest(c, v = {}, { today, preferredLocationId = null, prefe
   if (!(year >= 1980 && year <= maxYear)) errors.year = 'Enter the year';
   if (!['key', 'push'].includes(v.startType)) errors.startType = 'Key or push-button start?';
   if (!['petrol', 'diesel', 'hybrid', 'ev'].includes(v.fuel)) errors.fuel = 'Choose the fuel type';
+  // Changeovers are done on site: Matt comes to the vehicle, so we need where and roughly when.
+  if (!String(siteAddress || '').trim()) errors.siteAddress = 'Where is the vehicle? (address)';
+  if (!String(approxTime || '').trim() && !String(preferredDays || '').trim()) errors.approxTime = 'Roughly what day and time suits?';
   if (Object.keys(errors).length) return { ok: false, errors };
   const reasons = [];
   if (v.startType === 'push') reasons.push('push-button start');
@@ -401,6 +443,7 @@ function changeoverRequest(c, v = {}, { today, preferredLocationId = null, prefe
       likelyInstall: reasons.length ? 'complex' : 'standard', complexReasons: reasons,
       // Dräger "Change vehicle": $290 standard / $350 complex, plus hourly labour if the wiring needs it
       quote: reasons.length ? 350 : 290,
+      onSite: true, siteAddress: String(siteAddress).trim(), approxTime: String(approxTime).trim(),
       preferredLocationId, preferredDays, notes,
     },
   };
@@ -434,7 +477,7 @@ const locations = [
 ];
 
 // Roster as set in Timely (all 5-minute slots, "can be booked online every 5 minutes").
-// removalSlots: how many 15-min removals can queue after servicing ends (default 2 — change per location).
+// removalSlots: how many removals a session takes (default 3). Removals are floating placeholders — see removalEstimates().
 const schedules = [
   { id: 'cam-tue', locationId: 'cambridge', rule: { type: 'weekly', weekdays: [2] }, start: '9:20', end: '10:10', slotMins: 5 },
   { id: 'cam-thu', locationId: 'cambridge', rule: { type: 'weekly', weekdays: [4] }, start: '9:20', end: '10:00', slotMins: 5 },
@@ -454,8 +497,8 @@ const services = [
   { id: 'inst', name: 'Install — standard vehicle', duration: 120, price: 200, onlineBookable: false, group: 'install' },      // + first month rental (+ $7 theft protection) — see installCharge()
   { id: 'inst-sub', name: 'Install — subsidised (fee waived)', duration: 120, price: 0, onlineBookable: false, subsidised: true, group: 'install' },
   { id: 'inst-cx', name: 'Install — complex vehicle', duration: 180, price: 300, onlineBookable: false, group: 'install' },
-  { id: 'rem', name: 'Removal', duration: 15, price: 110, onlineBookable: true, group: 'removal' }, // pencilled-in, queued after servicing
-  { id: 'chg', name: 'Changeover to another vehicle', duration: 120, price: 290, priceComplex: 350, onlineBookable: true, group: 'changeover', requestOnly: true }, // request + vehicle details; $290 standard / $350 complex (Dräger)
+  { id: 'rem', name: 'Removal', duration: 15, price: 110, onlineBookable: true, group: 'removal' }, // floating placeholder until approved + locked on the morning; temporary removals are handled the same (need NZTA approval)
+  { id: 'chg', name: 'Changeover to another vehicle', duration: 120, price: 290, priceComplex: 350, onlineBookable: true, group: 'changeover', requestOnly: true }, // request + vehicle details; done ON SITE at an arranged approx time; $290 standard / $350 complex (Dräger)
 
   // ---- Dräger Schedule of Fees and Charges, DSP-ITL-605 Rev:4, effective 16 Apr 2026 (NZD incl GST) ----
   // Staff-only charges, added at checkout. Not bookable by customers.
@@ -524,6 +567,14 @@ let toastT;
 function toast(msg, bad) { const t = $('toast'); t.textContent = msg; t.className = 'toast' + (bad ? ' bad' : ''); t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, 4000); }
 const errMsg = e => (e && (e.message || e.error_description)) || String(e);
 
+// Floating removals: Map(bookingId -> estimated minutes) for one location on the selected day
+const sessOf = s => ({ id: 's', date: s.session_date, start: s.start_min, end: s.end_min, slotMins: s.slot_mins, removalSlots: s.removal_slots, removalMins: s.removal_mins });
+const toEng = b => ({ id: b.id, sessionId: 's', start: b.start_min, duration: b.duration_mins, status: b.status, kind: b.kind,
+                      timeLocked: b.time_locked, approvedAt: b.approved_at, createdAt: b.created_at });
+const floating = b => b.kind === 'removal' && b.time_locked === false;
+const estFor = s => removalEstimates(sessOf(s), S.bookings.filter(b => b.location_id === s.location_id).map(toEng));
+const hmOf = v => { const [h, m] = String(v).split(':').map(Number); return h * 60 + m; };
+
 // ---------- state ----------
 const S = { view: 'run', date: null, sessions: [], bookings: [], sel: null, extras: [], custQ: '', custSel: null, customers: [] };
 
@@ -548,7 +599,7 @@ function renderLogin(msg) {
     <label class="label" for="pw">Password</label><input id="pw" type="password" autocomplete="current-password" required>
     <button class="btn brand" id="loginBtn">Log in</button>
     <div id="loginMsg" class="alert" hidden></div>
-    <div class="empty" style="font-size:.75rem;margin-top:10px">build 2026-11-05 19:42 UTC</div></form>`;
+    <div class="empty" style="font-size:.75rem;margin-top:10px">build 2026-11-10 04:46 UTC</div></form>`;
   const btn = $('loginBtn'), box = $('loginMsg');
   const fail = m => { btn.disabled = false; btn.textContent = 'Log in'; box.textContent = m; box.hidden = false; };
   $('loginForm').onsubmit = async e => {
@@ -572,7 +623,7 @@ async function loadSessions() {
   if (!S.date || !dates.includes(S.date)) S.date = dates.find(d => d >= today) || dates[0];
   await loadBookings();
 }
-async function loadBookings() {
+async function loadBookings(noLock) {
   const { data, error } = await db.from('bookings')
     .select('*, customer:customers(*)')
     .eq('session_date', S.date).neq('status', 'cancelled').order('start_min');
@@ -582,6 +633,14 @@ async function loadBookings() {
   if (ids.length) { const r = await db.from('payments').select('*').in('booking_id', ids); pays = r.data || []; }
   data.forEach(b => b.payments = pays.filter(p => p.booking_id === b.id));
   S.bookings = data;
+  // On the day itself, approved removals take their solid time (once, then reload).
+  if (!noLock && S.date === nzToday()) {
+    const locs = [...new Set(data.filter(b => floating(b) && b.approved_at).map(b => b.location_id))];
+    if (locs.length) {
+      const rs = await Promise.all(locs.map(l => db.rpc('lock_removals', { p_location: l, p_date: S.date })));
+      if (rs.every(r => !r.error)) { toast('Approved removals now have their time locked in'); return loadBookings(true); }
+    }
+  }
 }
 
 // ---------- render ----------
@@ -589,12 +648,13 @@ function render() {
   $('app').innerHTML = `<header class="top"><h1>Run sheet</h1>
       <nav class="tabs"><button class="chip" aria-pressed="${S.view==='run'}" data-v="run">Sessions</button>
         <button class="chip" aria-pressed="${S.view==='cust'}" data-v="cust">Customers</button>
+        <button class="chip" aria-pressed="${S.view==='sched'}" data-v="sched">Schedule</button>
         <button class="chip" id="refresh">Refresh</button><button class="chip" id="logout">Log out</button></nav></header>
     <div id="body"></div>`;
   document.querySelectorAll('[data-v]').forEach(b => b.onclick = () => { S.view = b.dataset.v; render(); });
   $('refresh').onclick = async () => { await loadSessions(); render(); toast('Updated'); };
   $('logout').onclick = async () => { await db.auth.signOut(); renderLogin(); };
-  S.view === 'run' ? renderRun() : renderCustomers();
+  S.view === 'run' ? renderRun() : S.view === 'sched' ? renderSchedule() : renderCustomers();
 }
 
 function profileFlag(c, b) {
@@ -620,14 +680,18 @@ function renderRun() {
      const sess = { start: s.start_min, end: s.end_min, slotMins: s.slot_mins, removalSlots: s.removal_slots, removalMins: s.removal_mins };
      const bs = S.bookings.filter(b => b.location_id === s.location_id && b.kind === 'service' && b.source !== 'walkin');
      const ws = S.bookings.filter(b => b.location_id === s.location_id && b.source === 'walkin');
-     const rs = S.bookings.filter(b => b.location_id === s.location_id && b.kind === 'removal');
+     const rs = S.bookings.filter(b => b.location_id === s.location_id && b.kind === 'removal');   // floating + locked
      const taken = S.bookings.filter(b => b.location_id === s.location_id).reduce((a, b) => a + b.payments.reduce((x, p) => x + p.amount_cents, 0), 0) / 100;
+     const est = estFor(s);
+     const rTime = b => floating(b) ? (est.get(b.id) ?? b.start_min) : b.start_min;
+     const held = t => rs.find(b => !floating(b) && b.start_min <= t && t < b.start_min + b.duration_mins);
      const row = (t, b) => {
-       if (!b) return `<tr class="free"><td class="t">${fmtTime(t)}</td><td colspan="5">— free —</td></tr>`;
-       const c = b.customer || {}, flag = profileFlag(c, b);
-       return `<tr class="row ${b.id===S.sel?'sel':''}" data-b="${b.id}"><td class="t">${fmtTime(b.start_min)}</td>
+       if (!b) { const h = held(t); return `<tr class="free"><td class="t">${fmtTime(t)}</td><td colspan="5">${h ? `— held for removal · ${esc(fullName(h.customer || {}))} —` : '— free —'}</td></tr>`; }
+       const c = b.customer || {}, flag = profileFlag(c, b), fl = floating(b);
+       const pill = fl ? (b.approved_at ? ['pencilled', 'Approved · time not locked'] : ['pencilled', 'Needs approval']) : [b.status, STATUS[b.status] || b.status];
+       return `<tr class="row ${b.id===S.sel?'sel':''}" data-b="${b.id}"><td class="t">${fl ? '≈ ' + fmtTime(rTime(b)) : fmtTime(b.start_min)}</td>
          <td><b>${esc(fullName(c))}</b><span class="m-only empty">Installed ${yDate(c.install_date)} · ${esc(SVC(b.service_id).name)} · ${money(b.price_cents/100)}</span>${flag?`<span class="flag" style="display:block">⚑ ${esc(flag)}</span>`:''}</td><td class="t d-only">${yDate(c.install_date)}</td>
-         <td class="d-only">${esc(SVC(b.service_id).name)}</td><td class="t d-only">${money(b.price_cents/100)}</td><td><span class="pill p-${b.status}">${STATUS[b.status]||b.status}</span></td></tr>`;
+         <td class="d-only">${esc(SVC(b.service_id).name)}</td><td class="t d-only">${money(b.price_cents/100)}</td><td><span class="pill p-${pill[0]}">${pill[1]}</span></td></tr>`;
      };
      const times = slotTimes(sess);
      return `<div class="session"><div class="s-head"><h3>${esc(LOC(s.location_id))} <span class="t" style="font-size:.9rem;color:var(--muted)">${fmtTime(s.start_min)}–${fmtTime(s.end_min)}</span></h3>
@@ -636,8 +700,8 @@ function renderRun() {
        <div class="meter"><i style="width:${Math.round(bs.length/times.length*100)}%"></i></div>
        <div class="tablewrap"><table><thead><tr><th>Time</th><th>Customer</th><th class="d-only">Installed</th><th class="d-only">Service</th><th class="d-only">Price</th><th>Status</th></tr></thead><tbody>
        ${times.map(t => row(t, bs.find(b => b.start_min === t))).join('')}
-       <tr><td colspan="6" class="label" style="padding-top:12px">Removals · after servicing</td></tr>
-       ${removalTimes(sess).map(t => row(t, rs.find(b => b.start_min === t))).join('')}
+       <tr><td colspan="6" class="label" style="padding-top:12px">Removals · ${rs.length} of ${s.removal_slots} · ≈ times move as services book, until approved and locked on the day</td></tr>
+       ${[...rs].sort((a, b) => rTime(a) - rTime(b)).map(b => row(0, b)).join('') || '<tr class="free"><td class="t"></td><td colspan="5">— none requested —</td></tr>'}
        ${ws.length ? `<tr><td colspan="6" class="label" style="padding-top:12px">Walk-ins</td></tr>${ws.map(b => row(b.start_min, b)).join('')}` : ''}
        </tbody></table></div>
        <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap"><button class="btn" data-walk="${s.location_id}">+ Walk-in sale</button><button class="btn ghost" data-add="${s.location_id}">+ Add booking</button></div></div>`;
@@ -665,14 +729,20 @@ function renderSide() {
   const c = b.customer || {}, d = customerDates(eng(c), b.session_date), paid = b.payments.length > 0;
   const total = b.price_cents / 100 + S.extras.reduce((a, id) => a + SVC(id).price, 0);
   const flag = profileFlag(c, b);
-  el.innerHTML = `<div class="label">${esc(LOC(b.location_id))} · ${longDate(b.session_date)} · <span class="t">${fmtTime(b.start_min)}</span></div>
+  const fl = floating(b), sRow = S.sessions.find(x => x.session_date === b.session_date && x.location_id === b.location_id);
+  const when = fl ? '≈ ' + fmtTime((sRow && estFor(sRow).get(b.id)) ?? b.start_min) : fmtTime(b.start_min);
+  el.innerHTML = `<div class="label">${esc(LOC(b.location_id))} · ${longDate(b.session_date)} · <span class="t">${when}</span></div>
     <h2 style="font-size:1.5rem">${esc(fullName(c))}</h2><div class="empty">${esc(c.mobile || '')}</div>
     <div class="facts"><div class="fact"><div class="label">Installed</div><div class="v">${yDate(c.install_date)}</div></div>
       <div class="fact"><div class="label">Apply date</div><div class="v">${yDate(d.exitEligible)}${c.apply_date_set_by==='customer'?'<br><span class="flag" style="color:var(--warn)">NZTA date, set by customer</span>':''}</div></div>
       <div class="fact"><div class="label">Subsidy</div><div class="v">${d.subsidyEnds ? (d.subsidyActive?'Until ':'Ended ') + yDate(d.subsidyEnds) : 'None'}</div></div>
       <div class="fact"><div class="label">Theft protection</div><div class="v">${c.theft_protection ? 'Yes' : 'No'}</div></div></div>
     ${flag ? `<div class="alert">⚑ ${esc(flag)}</div>` : ''}
-    ${b.status === 'pencilled' ? `<div class="grid2"><button class="btn brand" data-st="confirmed">Accept removal</button><button class="btn ghost" data-st="cancelled">Decline</button></div>` : ''}
+    ${fl && !b.approved_at ? `<div class="alert" style="background:var(--warn-soft);color:var(--ink)">Placeholder only — no time is held. It moves later if a service books that time.</div>
+      <div class="grid2"><button class="btn brand" id="apRem">Approve removal</button><button class="btn ghost" data-st="cancelled">Decline</button></div>` : ''}
+    ${fl && b.approved_at ? `<div class="alert" style="background:var(--warn-soft);color:var(--ink)">Approved. The time is still approximate and locks in on the morning of the session.</div>
+      <div class="grid2"><button class="btn" id="lockRem">Lock time now</button><button class="btn ghost" data-st="cancelled">Decline</button></div>` : ''}
+    ${!fl && b.status === 'pencilled' ? `<div class="grid2"><button class="btn brand" data-st="confirmed">Accept removal</button><button class="btn ghost" data-st="cancelled">Decline</button></div>` : ''}
     <div style="margin-top:10px"><div class="co-line"><span>${esc(b.details?.temporary ? 'Temporary removal' : SVC(b.service_id).name)}</span><span class="t">${money(b.price_cents/100)}</span></div>
       ${S.extras.map(id => `<div class="co-line"><span>${esc(SVC(id).name)}</span><span class="t">${money(SVC(id).price)}</span></div>`).join('')}
       ${paid ? '' : `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"><button class="chip" data-x="vr">+ Violation reset $100</button><button class="chip" data-x="vr-disc">+ Mech/battery $60</button>${S.extras.length?'<button class="chip" id="clrX">Clear</button>':''}</div>
@@ -691,6 +761,14 @@ function renderSide() {
   const af = $('addFee'); if (af) af.onclick = () => { const v = $('moreFee').value; if (v) { S.extras.push(v); renderSide(); } };
   const cx = $('clrX'); if (cx) cx.onclick = () => { S.extras = []; renderSide(); };
   el.querySelectorAll('[data-st]').forEach(x => x.onclick = () => setStatus(b, x.dataset.st));
+  if ($('apRem')) $('apRem').onclick = async () => {
+    const { error } = await db.rpc('approve_removal', { p_booking: b.id }); if (error) return toast(errMsg(error), true);
+    toast(b.session_date === nzToday() ? 'Approved — time locked in' : 'Approved — time locks on the morning'); await loadBookings(); renderRun();
+  };
+  if ($('lockRem')) $('lockRem').onclick = async () => {
+    const { error } = await db.rpc('lock_removals', { p_location: b.location_id, p_date: b.session_date }); if (error) return toast(errMsg(error), true);
+    toast('Time locked in — services now book around it'); await loadBookings(true); renderRun();
+  };
   el.querySelectorAll('[data-pay]').forEach(x => x.onclick = () => takePayment(b, x.dataset.pay, total));
   const up = $('undoPay'); if (up) up.onclick = () => {
     $('undoBox').innerHTML = `<div class="alert">Cancel this ${money(b.payments.reduce((a,p)=>a+p.amount_cents,0)/100)} sale? Refund any card payment on the terminal yourself.</div>
@@ -794,14 +872,66 @@ async function renderAddBooking(locId, walkin = false) {
     let t = S.date === nzToday() ? now.getHours() * 60 + now.getMinutes() : (sess ? sess.end_min : 720);
     const used = new Set(S.bookings.filter(b => b.location_id === locId).map(b => b.start_min));
     while (used.has(t)) t++;
-    const { data, error } = await db.from('bookings').insert({ customer_id: c.id, service_id: svc.id, location_id: locId, session_date: S.date, start_min: t,
-      duration_mins: svc.duration || 5, kind: 'service', status: 'arrived', source: 'walkin', price_cents: Math.round((svc.price || 0) * 100), details: {} }).select().single();
+    const rowW = { customer_id: c.id, service_id: svc.id, location_id: locId, session_date: S.date, start_min: t,
+      duration_mins: svc.duration || 5, kind: 'service', status: 'arrived', source: 'walkin', price_cents: Math.round((svc.price || 0) * 100), details: {} };
+    // a walk-in is on the sheet but holds no bookable slot
+    let { data, error } = await db.from('bookings').insert({ ...rowW, time_locked: false }).select().single();
+    if (error && /time_locked/.test(errMsg(error))) ({ data, error } = await db.from('bookings').insert(rowW).select().single());
     if (error) return toast(errMsg(error), true);
     toast(`Walk-in added: ${fullName(c)}`); S.sel = data.id; S.extras = []; await loadBookings(); renderRun();
   }
 }
 
 // ---------- customers ----------
+// ---------- schedule changes (public holidays, moved days, one-off sessions) ----------
+async function renderSchedule() {
+  const today = nzToday(), locs = locations.filter(l => l.onlineBookable !== false);
+  const [ex, on] = await Promise.all([
+    db.from('schedule_exceptions').select('*').gte('date', today).order('date'),
+    db.from('schedules').select('*').eq('rule->>type', 'once')]);
+  if (ex.error || on.error) return toast(errMsg(ex.error || on.error), true);
+  const extras = (on.data || []).filter(x => x.rule.date >= today).sort((a, b) => a.rule.date.localeCompare(b.rule.date));
+  const KIND = { closed: 'Cancelled', override: 'Different hours', moved: 'Note' };
+  $('body').innerHTML = `<div class="layout"><div class="panel"><h2>Changes coming up</h2>
+      <div class="list">${[
+        ...ex.data.map(e => `<div class="item"><span><b>${esc(LOC(e.location_id))} · ${longDate(e.date)}</b><br><span class="empty">${KIND[e.kind] || e.kind}${e.kind === 'override' ? ` ${fmtTime(e.start_min)}–${fmtTime(e.end_min)}` : ''}${e.note ? ' · ' + esc(e.note) : ''}</span></span><button class="chip" data-delx="${e.id}">Undo</button></div>`),
+        ...extras.map(x => `<div class="item"><span><b>${esc(LOC(x.location_id))} · ${longDate(x.rule.date)}</b><br><span class="empty">Extra session ${fmtTime(x.start_min)}–${fmtTime(x.end_min)}</span></span><button class="chip" data-dels="${esc(x.id)}">Remove</button></div>`)
+      ].join('') || '<div class="empty">No changes. Every location runs to its normal pattern.</div>'}</div></div>
+    <aside class="panel side"><h2>Change a day</h2>
+      <p class="empty">To move a session off a public holiday: cancel the usual day, then add an extra session on the new day.</p>
+      <form class="form" id="scf">
+        <label class="label" for="scK">What</label><select id="scK"><option value="closed">Cancel this day</option><option value="override">Different hours this day</option><option value="once">Add an extra session</option></select>
+        <label class="label" for="scL">Location</label><select id="scL">${locs.map(l => `<option value="${l.id}">${esc(l.name)}</option>`).join('')}</select>
+        <label class="label" for="scD">Date</label><input id="scD" type="date" min="${today}" required>
+        <div id="scT" hidden><div class="grid2"><div><label class="label" for="scS">Start</label><input id="scS" type="time" step="300"></div><div><label class="label" for="scE">Finish</label><input id="scE" type="time" step="300"></div></div></div>
+        <label class="label" for="scN">Note for the run sheet (optional)</label><input id="scN" placeholder="e.g. Labour Day">
+        <button class="btn brand" id="scGo">Save</button></form></aside></div>`;
+  $('scK').onchange = () => { $('scT').hidden = $('scK').value === 'closed'; };
+  document.querySelectorAll('[data-delx]').forEach(b => b.onclick = async () => { const { error } = await db.from('schedule_exceptions').delete().eq('id', b.dataset.delx); if (error) return toast(errMsg(error), true); await loadSessions(); renderSchedule(); toast('Undone'); });
+  document.querySelectorAll('[data-dels]').forEach(b => b.onclick = async () => { const { error } = await db.from('schedules').delete().eq('id', b.dataset.dels); if (error) return toast(errMsg(error), true); await loadSessions(); renderSchedule(); toast('Removed'); });
+  $('scf').onsubmit = async e => {
+    e.preventDefault();
+    const kind = $('scK').value, loc = $('scL').value, date = $('scD').value, note = $('scN').value.trim() || null;
+    if (!date) return toast('Pick a date', true);
+    let st = null, en = null;
+    if (kind !== 'closed') { if (!$('scS').value || !$('scE').value) return toast('Enter the start and finish times', true); st = hmOf($('scS').value); en = hmOf($('scE').value); if (en <= st) return toast('Finish must be after start', true); }
+    const { data: sess, error: e1 } = await db.rpc('sessions_between', { from_date: date, to_date: date }); if (e1) return toast(errMsg(e1), true);
+    const has = sess.some(x => x.location_id === loc);
+    if (kind === 'once' && has) return toast(`${LOC(loc)} already has a session that day — use "Different hours" instead`, true);
+    if (kind !== 'once' && !has) return toast(`${LOC(loc)} has no session on that date`, true);
+    if (kind !== 'once') {
+      const { count } = await db.from('bookings').select('id', { count: 'exact', head: true }).eq('location_id', loc).eq('session_date', date).neq('status', 'cancelled');
+      if (count && $('scGo').dataset.sure !== date + kind) { $('scGo').dataset.sure = date + kind; $('scGo').textContent = `${count} booked that day — tap again to confirm`; return toast(`${count} customer${count > 1 ? 's are' : ' is'} booked that day. They are not told automatically yet — contact them.`, true); }
+    }
+    const r = kind === 'once'
+      ? await db.from('schedules').insert({ id: `once-${loc}-${date}`, location_id: loc, rule: { type: 'once', date }, start_min: st, end_min: en, slot_mins: 5, removal_slots: 3, removal_mins: 15 })
+      : await db.from('schedule_exceptions').insert({ location_id: loc, date, kind, start_min: st, end_min: en, note });
+    if (r.error) return toast(errMsg(r.error), true);
+    if (kind === 'once' && note) await db.from('schedule_exceptions').insert({ location_id: loc, date, kind: 'moved', note });
+    await loadSessions(); renderSchedule(); toast('Saved');
+  };
+}
+
 async function renderCustomers() {
   $('body').innerHTML = `<div class="layout"><div class="panel"><input id="cq" placeholder="Search name or mobile" style="width:100%" value="${esc(S.custQ)}" autocomplete="off"><div class="list" id="clist"></div></div>
     <aside class="panel side" id="cside"><p class="empty">Pick a customer to edit their install date, subsidy and theft protection.</p></aside></div>`;
