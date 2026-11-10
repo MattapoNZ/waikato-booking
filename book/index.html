@@ -1,0 +1,797 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Waikato Interlocks — Book</title>
+<meta name="theme-color" content="#1f4d5c">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@600;700&family=Source+Sans+3:wght@400;600;700&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+:root{--bg:#f3f4f2;--panel:#fff;--ink:#18232b;--muted:#5d6b73;--line:#dde2e0;--accent:#d98a00;--accent-ink:#1b1300;--brand:#1f4d5c;--brand-soft:#e3eef0;
+ --ok:#2f7d4f;--ok-soft:#e2f2e8;--warn:#a35f00;--warn-soft:#fbefd9;--bad:#b3362d;--bad-soft:#f8e3e1;
+ --display:"Barlow Semi Condensed","Arial Narrow",system-ui,sans-serif;--body:"Source Sans 3",system-ui,-apple-system,"Segoe UI",sans-serif;--mono:"JetBrains Mono",ui-monospace,Menlo,monospace}
+@media (prefers-color-scheme:dark){:root{--bg:#11181c;--panel:#18232a;--ink:#e7ecec;--muted:#97a6ad;--line:#2a3840;--accent:#f0a526;--brand:#7fc0cf;--brand-soft:#1d3640;
+ --ok:#6fcf97;--ok-soft:#173326;--warn:#f2b25c;--warn-soft:#3a2a12;--bad:#ef8a80;--bad-soft:#3a1d1a;color-scheme:dark}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 var(--body);padding:env(safe-area-inset-top) max(16px,env(safe-area-inset-right)) calc(84px + env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
+#app{max-width:560px;margin:0 auto}
+h1,h2,h3{font-family:var(--display);margin:0;line-height:1.15} h1{font-size:1.7rem;padding:18px 0 4px} h2{font-size:1.25rem;margin-bottom:6px}
+p{margin:6px 0}
+.t{font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+.muted{color:var(--muted);font-size:.92rem}
+button{font:inherit;cursor:pointer}
+button:focus-visible,input:focus-visible,select:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+input,select,textarea{font:inherit;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 11px;width:100%;min-width:0}
+label.f{display:block;font-size:.8rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin:12px 0 4px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;margin-top:12px}
+.btn{display:block;width:100%;border:0;border-radius:10px;padding:13px 14px;font-weight:700;background:var(--accent);color:var(--accent-ink);text-align:center;margin-top:10px}
+.btn.brand{background:var(--brand);color:var(--panel)} .btn.ghost{background:transparent;border:1px solid var(--line);color:var(--ink);font-weight:600}
+.btn.sm{display:inline-block;width:auto;padding:9px 16px;margin:0} .btn:disabled{opacity:.5;cursor:wait}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.chip{border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:999px;padding:8px 14px;font-size:.95rem}
+.chip[aria-pressed="true"]{background:var(--brand);border-color:var(--brand);color:var(--panel);font-weight:600}
+.slot{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 0;border-top:1px solid var(--line)} .slot:first-child{border-top:0}
+.slot b{display:block} .big{font-family:var(--display);font-size:1.5rem;font-weight:700}
+.facts{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px} .fact{background:var(--bg);border-radius:10px;padding:10px}
+.fact .k{font-size:.72rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)} .fact .v{font-weight:700}
+.note{border-radius:10px;padding:10px 12px;margin-top:10px;background:var(--warn-soft);color:var(--ink)} .note.bad{background:var(--bad-soft)} .note.ok{background:var(--ok-soft)}
+.pill{display:inline-block;border-radius:999px;padding:2px 10px;font-size:.8rem;font-weight:700;background:var(--brand-soft);color:var(--brand)} .pill.warn{background:var(--warn-soft);color:var(--warn)} .pill.ok{background:var(--ok-soft);color:var(--ok)}
+nav{position:fixed;left:0;right:0;bottom:0;background:var(--panel);border-top:1px solid var(--line);display:flex;justify-content:center;padding-bottom:env(safe-area-inset-bottom);z-index:5}
+nav button{flex:1;max-width:140px;border:0;background:none;color:var(--muted);padding:12px 4px 10px;font-weight:600;font-size:.9rem;border-top:3px solid transparent}
+nav button[aria-current="page"]{color:var(--brand);border-top-color:var(--accent)}
+.toast{position:fixed;left:50%;bottom:calc(92px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;max-width:92vw;z-index:20;text-align:center}
+.toast.bad{background:var(--bad);color:#fff}
+a{color:var(--brand)}
+@media (prefers-reduced-motion:no-preference){.card{animation:in .18s ease-out}@keyframes in{from{opacity:0;transform:translateY(4px)}}}
+</style>
+</head>
+<body>
+<div id="app"><div class="card muted">Loading…</div></div>
+<div id="toast" class="toast" hidden role="status"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script>
+// Waikato Interlocks booking engine — sequential slot logic.
+// No dependencies. All dates are NZ-local "YYYY-MM-DD" strings and all times are
+// minutes after midnight, because every location is in one time zone.
+//
+// Core rule (matches how Timely is set up today with "minimise gaps"):
+//   a customer is only ever offered ONE time per session — the earliest unbooked slot.
+//   Cambridge Tue 9:20–10:10 with 5-min slots: first person sees 9:20, next sees 9:25 …
+//   If someone cancels 9:30, the next customer is offered 9:30 (gap gets filled first).
+
+const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+// ---------- date helpers (pure, timezone-free) ----------
+function parseDate(s) {
+  const [y, m, d] = s.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d));
+}
+function fmtDate(dt) {
+  return dt.toISOString().slice(0, 10);
+}
+function addDays(s, n) {
+  const dt = parseDate(s);
+  dt.setUTCDate(dt.getUTCDate() + n);
+  return fmtDate(dt);
+}
+function weekday(s) {
+  return parseDate(s).getUTCDay();
+}
+function hm(str) {
+  // "9:20" -> 560
+  const [h, m] = str.split(':').map(Number);
+  return h * 60 + m;
+}
+function fmtTime(min) {
+  const h = Math.floor(min / 60), m = min % 60;
+  const ap = h >= 12 ? 'pm' : 'am';
+  const h12 = ((h + 11) % 12) + 1;
+  return `${h12}:${String(m).padStart(2, '0')}${ap}`;
+}
+// Which occurrence of its weekday a date is in its month: 1..5 ; and whether it is the last.
+function nthOfMonth(s) {
+  const d = parseDate(s).getUTCDate();
+  const n = Math.ceil(d / 7);
+  const isLast = parseDate(addDays(s, 7)).getUTCMonth() !== parseDate(s).getUTCMonth();
+  return { n, isLast };
+}
+
+// ---------- recurrence ----------
+// rule shapes:
+//   { type: 'weekly',  weekdays: [2,4] }                 every Tue + Thu
+//   { type: 'weekly',  weekdays: [2], everyNWeeks: 2, anchor: '2026-11-03' }  fortnightly
+//   { type: 'monthly', weekday: 3, nth: 1 }               first Wednesday
+//   { type: 'monthly', weekday: 5, nth: 'last' }          last Friday
+//   { type: 'once',    date: '2026-12-23' }               one-off session
+function ruleMatches(rule, date) {
+  const wd = weekday(date);
+  switch (rule.type) {
+    case 'weekly': {
+      if (!rule.weekdays.includes(wd)) return false;
+      if (!rule.everyNWeeks || rule.everyNWeeks === 1) return true;
+      const diffDays = Math.round((parseDate(date) - parseDate(rule.anchor)) / 86400000);
+      const weeks = Math.floor(diffDays / 7);
+      return diffDays >= 0 && weeks % rule.everyNWeeks === 0;
+    }
+    case 'monthly': {
+      if (wd !== rule.weekday) return false;
+      const { n, isLast } = nthOfMonth(date);
+      return rule.nth === 'last' ? isLast : n === rule.nth;
+    }
+    case 'once':
+      return rule.date === date;
+    default:
+      return false;
+  }
+}
+
+// ---------- sessions ----------
+// A "schedule" is a standing pattern for a location, e.g. Cambridge Tue 9:20–10:10.
+// schedule: { id, locationId, rule, start:'9:20', end:'10:10', slotMins:5, validFrom?, validTo? }
+// exception: { locationId, date, kind:'closed' }                         — skip that day
+//            { locationId, date, kind:'override', start, end, note? }     — different hours that day
+//            { locationId, date, kind:'moved', toLocationId?, note }      — e.g. changed meeting point
+function sessionsForRange({ schedules, exceptions = [], locations = [] }, fromDate, toDate) {
+  const out = [];
+  for (let d = fromDate; d <= toDate; d = addDays(d, 1)) {
+    for (const s of schedules) {
+      if (s.validFrom && d < s.validFrom) continue;
+      if (s.validTo && d > s.validTo) continue;
+      if (!ruleMatches(s.rule, d)) continue;
+      const loc = locations.find(l => l.id === s.locationId);
+      if (loc && loc.active === false) continue;
+      const exs = exceptions.filter(e => e.locationId === s.locationId && e.date === d);
+      if (exs.some(e => e.kind === 'closed')) continue;
+      const ov = exs.find(e => e.kind === 'override');
+      const start = hm(ov ? ov.start : s.start);
+      const end = hm(ov ? ov.end : s.end);
+      const notes = exs.filter(e => e.note).map(e => e.note);
+      out.push({
+        id: `${s.locationId}@${d}@${start}`,
+        scheduleId: s.id,
+        locationId: s.locationId,
+        date: d,
+        start,
+        end,
+        slotMins: s.slotMins || 5,
+        // Removals are floating placeholders (see removalEstimates): up to removalSlots per session
+        removalSlots: s.removalSlots ?? 3,
+        removalMins: s.removalMins ?? 15,
+        notes,
+      });
+    }
+  }
+  return out.sort((a, b) => (a.date + String(a.start).padStart(4, '0')).localeCompare(b.date + String(b.start).padStart(4, '0')));
+}
+
+// All slot start times in a session that fit a service of `durationMins`.
+function slotTimes(session, durationMins = session.slotMins) {
+  const times = [];
+  for (let t = session.start; t + durationMins <= session.end; t += session.slotMins) times.push(t);
+  return times;
+}
+
+// Is [t, t+dur) free given existing bookings (each {start, duration, status})?
+function isFree(t, dur, bookings) {
+  return !bookings.some(b => b.status !== 'cancelled' && t < b.start + b.duration && b.start < t + dur);
+}
+
+function leadTimeOk(date, t, now, cutoffMins) {
+  const dayDiff = Math.round((parseDate(date) - parseDate(now.date)) / 86400000);
+  const minsUntil = dayDiff * 1440 + t - now.minutes;
+  return minsUntil >= cutoffMins;
+}
+
+// ---------- removals: floating placeholders ----------
+// A removal does NOT hold a time. It is a placeholder that sits at the first free gap in the
+// session and slides later whenever a service or violation reset books that time:
+//   removal requested when 11:30 is free -> shows "about 11:30"; someone books a service at 11:30
+//   -> the removal now shows "about 11:35", and so on.
+// It only becomes a solid, held time once Matt has approved it AND times are locked on the
+// morning of the session. Until then services always win.
+// booking fields used: { id, start, duration, status, kind, timeLocked, approvedAt, createdAt }
+//   timeLocked === false  -> floating removal;  anything else -> fixed (holds its time)
+const isFloating = b => b.kind === 'removal' && b.timeLocked === false && b.status !== 'cancelled';
+// timeLocked === false on anything else (e.g. a walk-in sale) means it is on the sheet but holds no slot
+const isFixed = b => b.status !== 'cancelled' && b.timeLocked !== false;
+
+// Estimated time for every floating removal in this session: Map(bookingId -> minutes).
+// Approved ones are placed first, then in the order they were requested.
+function removalEstimates(session, bookings, { onlyApproved = false, extra = 0 } = {}) {
+  const sess = bookings.filter(b => b.sessionId === session.id);
+  const fixed = sess.filter(isFixed).map(b => ({ start: b.start, duration: b.duration, status: 'confirmed' }));
+  const floaters = sess.filter(isFloating).filter(b => !onlyApproved || b.approvedAt)
+    .map((b, i) => ({ b, i }))
+    .sort((x, y) => (!x.b.approvedAt - !y.b.approvedAt) || String(x.b.createdAt || '').localeCompare(String(y.b.createdAt || '')) || x.i - y.i)
+    .map(x => x.b);
+  const out = new Map();
+  const place = () => {
+    let t = session.start;
+    while (!isFree(t, session.removalMins, fixed)) t += session.slotMins;
+    fixed.push({ start: t, duration: session.removalMins, status: 'confirmed' });
+    return t;
+  };
+  for (const b of floaters) out.set(b.id, place());
+  for (let i = 0; i < extra; i++) out.set(`new${i}`, place());   // where the NEXT request would sit
+  return out;
+}
+
+// Morning of the session: approved removals take a solid time and now hold it. Unapproved ones stay floating.
+function lockRemovals(session, bookings) {
+  const est = removalEstimates(session, bookings, { onlyApproved: true });
+  return bookings.map(b => est.has(b.id) ? { ...b, start: est.get(b.id), timeLocked: true, status: 'confirmed' } : b);
+}
+
+// The ONE time offered to a customer for this session, or null if full.
+// Services / resets: earliest 5-min slot not held by a service or a LOCKED removal (floating removals are ignored).
+// Removals: an approximate time only — null once the session has its limit of removals (default 3).
+// opts.now = { date, minutes } (NZ local), opts.cutoffMins = min lead time (Timely: 3 hours)
+function nextOfferedSlot(session, bookings, durationMins = session.slotMins, opts = {}) {
+  const sess = bookings.filter(b => b.sessionId === session.id);
+  const cutoff = opts.cutoffMins ?? 180;
+  if (opts.kind === 'removal') {
+    if (sess.filter(b => b.kind === 'removal' && b.status !== 'cancelled').length >= session.removalSlots) return null;
+    if (opts.now && !leadTimeOk(session.date, session.start, opts.now, cutoff)) return null;
+    return removalEstimates(session, bookings, { extra: 1 }).get('new0');
+  }
+  const fixed = sess.filter(isFixed);
+  for (const t of slotTimes(session, durationMins)) {
+    if (!isFree(t, durationMins, fixed)) continue;
+    if (opts.now && !leadTimeOk(session.date, t, opts.now, cutoff)) continue;
+    return t;
+  }
+  return null;
+}
+
+// What the customer app shows: one row per upcoming session with its single offered time.
+// horizonDays: Timely is currently set to 3 weeks ahead.
+function customerAvailability(data, bookings, { fromDate, horizonDays = 21, durationMins = 5, kind = 'service', now, cutoffMins = 180, locationId } = {}) {
+  const toDate = addDays(fromDate, horizonDays);
+  return sessionsForRange(data, fromDate, toDate)
+    .filter(s => !locationId || s.locationId === locationId)
+    .map(s => ({ session: s, offered: nextOfferedSlot(s, bookings, durationMins, { now, cutoffMins, kind }) }))
+    .filter(r => r.offered !== null);
+}
+
+// Create a booking — re-checks the slot so two people tapping at once can't both get 9:25.
+// (In the real backend this is enforced by a unique index on (location, date, start) inside a transaction.)
+// Services and resets are auto-confirmed and hold their time. Removals are floating placeholders:
+// pencilled, no held time, until Matt approves and times are locked on the morning.
+function book(session, bookings, { customerId, serviceId, kind = 'service', durationMins = 5, requestedStart, now, cutoffMins = 180, customer, details = {} }) {
+  if (kind === 'removal' && customer) {
+    const req = removalRequirements(customer, session.date);
+    if (req.temporary && !String(details.nztaApprovalRef || '').trim()) {
+      return { ok: false, reason: 'This is before your apply date, so NZTA temporary removal approval is needed', needs: req.needs };
+    }
+    if (!req.temporary && !details.zeroAlcoholLicencePhoto) {
+      return { ok: false, reason: 'Add a photo of your zero alcohol licence to request a removal', needs: req.needs };
+    }
+    if (req.temporary) details = { ...details, temporary: true };
+  }
+  const offered = nextOfferedSlot(session, bookings, durationMins, { now, cutoffMins, kind });
+  if (offered === null) return { ok: false, reason: kind === 'removal' ? 'No removal spots left that day' : 'Session full' };
+  if (kind !== 'removal' && requestedStart !== undefined && requestedStart !== offered) {
+    return { ok: false, reason: 'That time was just taken', offered };
+  }
+  const booking = {
+    id: `bk_${session.id}_${kind}_${kind === 'removal' ? 'float' : offered}_${customerId}`,
+    sessionId: session.id,
+    locationId: session.locationId,
+    date: session.date,
+    start: offered,
+    duration: kind === 'removal' ? session.removalMins : durationMins,
+    customerId,
+    serviceId,
+    kind,
+    status: kind === 'removal' ? 'pencilled' : 'confirmed',
+    timeLocked: kind !== 'removal',   // removals float until approved + locked
+    approvedAt: null,
+    details,
+  };
+  return { ok: true, booking };
+}
+
+// ---------- customer rules ----------
+// Customer: { installDate, subsidised, subsidyStart?, subsidyMonths=15, theftProtection, blockedServiceIds? }
+function addMonths(s, n) {
+  const dt = parseDate(s);
+  const day = dt.getUTCDate();
+  dt.setUTCDate(1);
+  dt.setUTCMonth(dt.getUTCMonth() + n);
+  const lastDay = new Date(Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth() + 1, 0)).getUTCDate();
+  dt.setUTCDate(Math.min(day, lastDay));
+  return fmtDate(dt);
+}
+
+// Subsidy runs 15 months from install, or from the later date they obtained it (subsidyStart).
+function customerDates(c, today) {
+  const subStart = c.subsidised ? (c.subsidyStart && c.subsidyStart > c.installDate ? c.subsidyStart : c.installDate) : null;
+  const subsidyEnds = subStart ? addMonths(subStart, c.subsidyMonths ?? 15) : null;
+  const standardExit = c.installDate ? addMonths(c.installDate, 12) : null;
+  return {
+    // Apply-for-removal date: 12 months after install, unless NZTA gave a new date after a denial
+    // (the customer can enter that themselves — see setApplyDate).
+    exitEligible: c.applyDate || standardExit,
+    standardExit,
+    applyDateSource: c.applyDate ? (c.applyDateSetBy || 'customer') : 'install',
+    subsidyStart: subStart,
+    subsidyEnds,
+    subsidyActive: !!subsidyEnds && (!today || today < subsidyEnds),
+  };
+}
+
+// Monthly service window = install day-of-month each month, ±7 days.
+function serviceWindow(c, onOrAfter) {
+  if (!c.installDate) return null;
+  for (let i = 1; i < 60; i++) {
+    const due = addMonths(c.installDate, i);
+    if (addDays(due, 7) >= onOrAfter) return { due, opens: addDays(due, -7), closes: addDays(due, 7) };
+  }
+  return null;
+}
+
+// Exactly what this customer is allowed to book, worked out from their profile:
+//  - ONE monthly service: subsidised or full price (by subsidy dates) × with/without theft protection
+//  - both violation resets
+//  - removal: from the apply date as normal; before it only as a temporary removal with NZTA approval
+//    (free while still subsidised)
+//  - changeover to another vehicle (request only, needs vehicle details)
+//  - minus anything Matt has switched off for them (blockedServiceIds)
+function allowedServices(c, services, today) {
+  const d = customerDates(c, today);
+  const tp = c.theftProtection !== false;
+  const out = [];
+  const monthly = services.find(s => s.group === 'service' && !!s.subsidised === d.subsidyActive && !!s.theftProtection === tp);
+  if (monthly) out.push(monthly);
+  out.push(...services.filter(s => s.group === 'violation'));
+  const rem = services.find(s => s.group === 'removal');
+  if (rem && c.installDate) {
+    const early = !!d.exitEligible && today < d.exitEligible;
+    out.push({ ...rem, price: d.subsidyActive ? 0 : rem.price,
+      note: [d.subsidyActive ? 'Free while subsidised' : null, early ? 'Before your apply date — needs NZTA temporary removal approval' : null].filter(Boolean).join(' · ') || null });
+  }
+  out.push(...services.filter(s => s.group === 'changeover'));
+  return out.filter(s => s.onlineBookable && !(c.blockedServiceIds || []).includes(s.id));
+}
+
+// Customer enters the new apply date NZTA gave them after a denied application.
+// Returns the updated customer, or { error } if the date doesn't make sense.
+function setApplyDate(c, newDate, { today, setBy = 'customer' } = {}) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(newDate || '') || isNaN(parseDate(newDate))) return { error: 'Enter the date NZTA gave you' };
+  if (c.installDate && newDate <= c.installDate) return { error: 'That date is before your install date' };
+  if (today && newDate < addDays(today, -365)) return { error: 'That date is more than a year ago — check the letter from NZTA' };
+  return { customer: { ...c, applyDate: newDate, applyDateSetBy: setBy, applyDateSetOn: today || null } };
+}
+
+// To apply for removal NZTA needs a service AFTER the apply date.
+// If a SERVICE booking falls in the last `warnDays` before the apply date, advise booking on/after it,
+// and suggest the first session that day or later (from the availability list the app already has).
+function applyDateAdvice(c, sessionDate, availability = [], { warnDays = 7, serviceGroup = 'service' } = {}) {
+  const { exitEligible } = customerDates(c);
+  if (!exitEligible) return null;
+  if (!(sessionDate >= addDays(exitEligible, -warnDays) && sessionDate < exitEligible)) return null;
+  const better = availability.find(r => r.session.date >= exitEligible) || null;
+  const daysShort = Math.round((parseDate(exitEligible) - parseDate(sessionDate)) / 86400000);
+  return {
+    applyDate: exitEligible,
+    daysShort,
+    message: `This is ${daysShort} day${daysShort === 1 ? '' : 's'} before your apply date. To apply for removal you need a service on or after ${exitEligible}.`,
+    suggestion: better, // { session, offered } or null if nothing in the booking horizon yet
+  };
+}
+
+// Removal before the apply date = temporary removal: NZTA approval reference required (photo of the letter optional).
+// Removal on/after the apply date = end of programme: photo of the zero alcohol licence required.
+function removalRequirements(c, sessionDate) {
+  const { exitEligible } = customerDates(c);
+  const temporary = !!exitEligible && sessionDate < exitEligible;
+  // From the apply date (end of programme) the customer shows their zero alcohol licence instead.
+  return { temporary, needs: temporary ? ['nztaApprovalRef'] : ['zeroAlcoholLicencePhoto'], applyDate: exitEligible };
+}
+
+// Changeover: moving the interlock to another vehicle. A request (no slot) — Matt arranges the time.
+// Vehicle details are required so he can tell if it's a standard or complex install.
+const EUROPEAN = ['audi', 'bmw', 'mercedes', 'mercedes-benz', 'volkswagen', 'vw', 'volvo', 'skoda', 'peugeot', 'citroen', 'renault', 'mini', 'porsche', 'land rover', 'jaguar', 'fiat', 'alfa romeo', 'seat', 'cupra', 'opel', 'saab'];
+function changeoverRequest(c, v = {}, { today, preferredLocationId = null, preferredDays = '', siteAddress = '', approxTime = '', notes = '' } = {}) {
+  const errors = {};
+  const rego = String(v.rego || '').toUpperCase().replace(/\s+/g, '');
+  if (!/^[A-Z0-9]{1,6}$/.test(rego)) errors.rego = 'Enter the plate (up to 6 letters/numbers)';
+  if (!String(v.make || '').trim()) errors.make = 'Enter the make';
+  if (!String(v.model || '').trim()) errors.model = 'Enter the model';
+  const year = Number(v.year), maxYear = Number((today || '2100').slice(0, 4)) + 1;
+  if (!(year >= 1980 && year <= maxYear)) errors.year = 'Enter the year';
+  if (!['key', 'push'].includes(v.startType)) errors.startType = 'Key or push-button start?';
+  if (!['petrol', 'diesel', 'hybrid', 'ev'].includes(v.fuel)) errors.fuel = 'Choose the fuel type';
+  // Changeovers are done on site: Matt comes to the vehicle, so we need where and roughly when.
+  if (!String(siteAddress || '').trim()) errors.siteAddress = 'Where is the vehicle? (address)';
+  if (!String(approxTime || '').trim() && !String(preferredDays || '').trim()) errors.approxTime = 'Roughly what day and time suits?';
+  if (Object.keys(errors).length) return { ok: false, errors };
+  const reasons = [];
+  if (v.startType === 'push') reasons.push('push-button start');
+  if (v.fuel === 'hybrid' || v.fuel === 'ev') reasons.push(v.fuel === 'ev' ? 'EV' : 'hybrid');
+  if (EUROPEAN.includes(String(v.make).trim().toLowerCase())) reasons.push('European');
+  return {
+    ok: true,
+    request: {
+      id: `chg_${c.id}_${today || ''}_${rego}`,
+      kind: 'changeover', customerId: c.id, status: 'requested', createdOn: today || null,
+      vehicle: { rego, make: v.make.trim(), model: v.model.trim(), year, startType: v.startType, fuel: v.fuel },
+      likelyInstall: reasons.length ? 'complex' : 'standard', complexReasons: reasons,
+      // Dräger "Change vehicle": $290 standard / $350 complex, plus hourly labour if the wiring needs it
+      quote: reasons.length ? 350 : 290,
+      onSite: true, siteAddress: String(siteAddress).trim(), approxTime: String(approxTime).trim(),
+      preferredLocationId, preferredDays, notes,
+    },
+  };
+}
+
+// What to charge on install day, as SEPARATE invoice lines (so Xero gets one line each):
+//   1. install fee: $200 standard / $300 complex, $0 if subsidised (fee waived, still shown as a line)
+//   2. first month = the customer's own monthly service item ($165, $172 with theft protection, $115 / $122 subsidised)
+//   e.g. standard, full price, no theft protection: 200 + 165 = $365 (matches Timely today)
+function installCharge(c, services, { complex = false, today } = {}) {
+  const d = customerDates(c, today);
+  const sub = c.subsidised && (d.subsidyActive || !today);
+  const tp = c.theftProtection !== false;
+  const fee = services.find(s => s.id === (sub ? 'inst-sub' : complex ? 'inst-cx' : 'inst'));
+  const month = services.find(s => s.group === 'service' && !!s.subsidised === !!sub && !!s.theftProtection === tp);
+  const lines = [
+    { id: fee.id, name: fee.name, price: fee.price },
+    { id: month.id, name: `${month.name} — first month`, price: month.price },
+  ];
+  return { lines, total: lines.reduce((a, l) => a + l.price, 0) };
+}
+
+// Seed configuration taken from the live Timely account (read 4 Nov 2026).
+
+const locations = [
+  { id: 'cambridge', name: 'Cambridge', address: 'Corner Taylor and Victoria St, Cambridge', active: true },
+  { id: 'hamilton', name: 'Hamilton', address: 'Minogue Park, off Moore St, Forest Lake, Hamilton 3200', active: true },
+  { id: 'morrinsville', name: 'Morrinsville', address: 'Morrinsville Rugby Club, 355 Thames St, Morrinsville 3300', active: true },
+  { id: 'kopu', name: 'Kopu', address: '4 Queen St, Kopu 3578', active: true },
+  { id: 'mobile', name: 'Mobile', address: 'No fixed address', active: true, onlineBookable: false },
+];
+
+// Roster as set in Timely (all 5-minute slots, "can be booked online every 5 minutes").
+// removalSlots: how many removals a session takes (default 3). Removals are floating placeholders — see removalEstimates().
+const schedules = [
+  { id: 'cam-tue', locationId: 'cambridge', rule: { type: 'weekly', weekdays: [2] }, start: '9:20', end: '10:10', slotMins: 5 },
+  { id: 'cam-thu', locationId: 'cambridge', rule: { type: 'weekly', weekdays: [4] }, start: '9:20', end: '10:00', slotMins: 5 },
+  { id: 'ham-tue', locationId: 'hamilton', rule: { type: 'weekly', weekdays: [2] }, start: '10:50', end: '12:00', slotMins: 5 },
+  { id: 'ham-thu', locationId: 'hamilton', rule: { type: 'weekly', weekdays: [4] }, start: '11:30', end: '12:30', slotMins: 5 },
+  { id: 'mor-tue', locationId: 'morrinsville', rule: { type: 'weekly', weekdays: [2] }, start: '17:00', end: '17:45', slotMins: 5 },
+  { id: 'kop-1wed', locationId: 'kopu', rule: { type: 'monthly', weekday: 3, nth: 1 }, start: '10:00', end: '11:00', slotMins: 5 },
+];
+
+const services = [
+  { id: 'svc-tp', name: 'Monthly service + theft protection', duration: 5, price: 172, onlineBookable: true, group: 'service', theftProtection: true },
+  { id: 'svc', name: 'Monthly service (no theft protection)', duration: 5, price: 165, onlineBookable: true, group: 'service', theftProtection: false },
+  { id: 'sub-tp', name: 'Subsidised service + theft protection', duration: 5, price: 122, onlineBookable: true, subsidised: true, group: 'service', theftProtection: true },
+  { id: 'sub', name: 'Subsidised service (no theft protection)', duration: 5, price: 115, onlineBookable: true, subsidised: true, group: 'service', theftProtection: false },
+  { id: 'vr', name: 'Violation reset', duration: 5, price: 100, onlineBookable: true, group: 'violation' },
+  { id: 'vr-disc', name: 'Violation reset — mechanic / battery', duration: 5, price: 60, onlineBookable: true, group: 'violation' },
+  { id: 'rem', name: 'Removal', duration: 15, price: 110, onlineBookable: true, group: 'removal' }, // floating placeholder until approved + locked on the morning; temporary removals are handled the same (need NZTA approval)
+  { id: 'chg', name: 'Changeover to another vehicle', duration: 120, price: 290, priceComplex: 350, onlineBookable: true, group: 'changeover', requestOnly: true }, // request + vehicle details; done ON SITE at an arranged approx time; $290 standard / $350 complex (Dräger)
+
+  // ---- Dräger Schedule of Fees and Charges, DSP-ITL-605 Rev:4, effective 16 Apr 2026 (NZD incl GST) ----
+  // Staff-only charges, added at checkout. Not bookable by customers.
+];
+
+const feeSchedule = { source: 'Dräger DSP-ITL-605 Rev:4', effective: '2026-04-16' };
+
+const bookingPolicy = {
+  minLeadMins: 180,      // can book up to 3 hours before
+  horizonDays: 21,       // up to 3 weeks ahead
+  initialStatus: 'confirmed',        // services + resets auto-confirm; removals are pencilled-in
+  gstRate: 0.15,         // prices are GST-inclusive
+  reminders: [{ channel: 'sms', hoursBefore: 3 }, { channel: 'email', hoursBefore: 6 }],
+  installsByPhone: 'For installs call or text 027 264 6986',
+};
+
+
+const SUPABASE_URL = 'https://yimjmbarxnmakpswbrhz.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_vJ2mi3Ig-2fK_rBQIGA6Zw_4wt8eLpE'; // public key — safe in the page
+const db = (window.__mockSupabase || window.supabase).createClient(SUPABASE_URL, SUPABASE_KEY,
+  { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, lock: async (_n, _t, fn) => fn() } });
+const MATT = '027 264 6986';
+
+// ---------- helpers ----------
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const money = n => n === 0 ? 'Free' : '$' + (Math.round(n * 100) / 100).toFixed(2).replace(/\.00$/, '');
+const nzToday = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Pacific/Auckland' });
+const longDate = d => parseDate(d).toLocaleDateString('en-NZ', { weekday:'long', day:'numeric', month:'long', timeZone:'UTC' });
+const shortDate = d => parseDate(d).toLocaleDateString('en-NZ', { weekday:'short', day:'numeric', month:'short', timeZone:'UTC' });
+const yDate = d => d ? parseDate(d).toLocaleDateString('en-NZ', { day:'numeric', month:'short', year:'numeric', timeZone:'UTC' }) : '—';
+const LOC = id => locations.find(l => l.id === id) || { name: id, address: '' };
+const SVC = id => services.find(s => s.id === id) || { id, name: id, price: 0 };
+const errMsg = e => (e && (e.message || e.error_description)) || String(e);
+const withTimeout = (pr, ms, what) => Promise.race([pr, new Promise((_, rej) => setTimeout(() => rej(new Error(what + ' timed out — check your signal and try again')), ms))]);
+let toastT;
+function toast(msg, bad) { const t = $('toast'); t.textContent = msg; t.className = 'toast' + (bad ? ' bad' : ''); t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, bad ? 6000 : 3500); }
+const mapLink = l => l.address ? `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(l.address)}" target="_blank" rel="noopener">${esc(l.address)}</a>` : '';
+// "021 123 4567" -> "+64211234567"
+const nzPhone = v => { const d = String(v).replace(/\D/g, '').replace(/^(64|0)/, ''); return /^2\d{7,9}$/.test(d) ? '+64' + d : null; };
+
+// ---------- state ----------
+const S = { tab: 'home', me: null, user: null, bookings: [], avail: [], rAvail: [], rTimes: [], requests: [], svc: null, loc: 'all', confirm: null, rPick: null };
+const eng = () => ({ id: S.me.id, installDate: S.me.install_date, subsidised: S.me.subsidised, subsidyStart: S.me.subsidy_start, subsidyMonths: S.me.subsidy_months ?? 15,
+  theftProtection: S.me.theft_protection, applyDate: S.me.apply_date, applyDateSetBy: S.me.apply_date_set_by, blockedServiceIds: S.me.blocked || [] });
+const live = k => S.bookings.find(b => b.kind === k && ['pencilled','confirmed'].includes(b.status) && b.session_date >= nzToday());
+const monthlyOn = d => allowedServices(eng(), services, d).find(s => s.group === 'service');
+const removalOn = d => allowedServices(eng(), services, d).find(s => s.group === 'removal');
+
+// ---------- start / login ----------
+async function start() {
+  try {
+    const { data } = await withTimeout(db.auth.getSession(), 15000, 'Checking login');
+    if (!data.session) return renderLogin();
+    S.user = data.session.user;
+    const { data: linked, error } = await withTimeout(db.rpc('link_me'), 15000, 'Finding your details');
+    if (error) return renderLogin(errMsg(error));
+    if (!linked) return renderNoMatch();
+    await load(); render();
+  } catch (e) { renderLogin(errMsg(e)); }
+}
+
+async function renderLogin(msg) {
+  $('app').innerHTML = `<h1>Waikato Interlocks</h1><p class="muted">Book your interlock service, see your dates and what you pay.</p>
+    <div class="card" id="lg">${msg ? `<div class="note bad">${esc(msg)}</div>` : ''}<p class="muted">Checking sign-in options…</p></div>
+    <p class="muted" style="text-align:center;margin-top:16px">Installs and anything urgent: text or call Matt on <a href="tel:${MATT.replace(/ /g,'')}">${MATT}</a></p>`;
+  let ext = {};
+  try { ext = (await (await fetch(SUPABASE_URL + '/auth/v1/settings', { headers: { apikey: SUPABASE_KEY } })).json()).external || {}; } catch (e) {}
+  if (window.__mockSupabase) ext = window.__mockSupabase.providers || ext;
+  const any = ext.phone || ext.google || ext.facebook;
+  $('lg').innerHTML = (msg ? `<div class="note bad">${esc(msg)}</div>` : '') + (any ? `<h2>Sign in</h2>
+    ${ext.phone ? `<form id="phF"><label class="f" for="ph">Your mobile number</label><input id="ph" type="tel" inputmode="tel" autocomplete="tel" placeholder="021 123 4567" required>
+      <button class="btn brand" id="phGo">Text me a code</button></form><div id="codeBox"></div>` : ''}
+    ${ext.phone && (ext.google || ext.facebook) ? '<p class="muted" style="text-align:center;margin:14px 0 0">or</p>' : ''}
+    ${ext.google ? '<button class="btn ghost" data-o="google">Continue with Google</button>' : ''}
+    ${ext.facebook ? '<button class="btn ghost" data-o="facebook">Continue with Facebook</button>' : ''}
+    <div id="lgMsg" class="note bad" hidden></div>
+    <p class="muted" style="margin-top:12px">Use the mobile number or email address Matt has on file for you.</p>`
+    : `<h2>Online booking opens soon</h2><p>To book now, text Matt on <a href="sms:${MATT.replace(/ /g,'')}">${MATT}</a>.</p>`);
+  const fail = m => { const b = $('lgMsg'); b.textContent = m; b.hidden = false; };
+  document.querySelectorAll('[data-o]').forEach(b => b.onclick = async () => {
+    b.disabled = true;
+    const { error } = await db.auth.signInWithOAuth({ provider: b.dataset.o, options: { redirectTo: location.origin + location.pathname } });
+    if (error) { b.disabled = false; fail(errMsg(error)); }
+  });
+  if ($('phF')) $('phF').onsubmit = async e => {
+    e.preventDefault(); const phone = nzPhone($('ph').value);
+    if (!phone) return fail('Enter your NZ mobile number, like 021 123 4567');
+    $('lgMsg').hidden = true; $('phGo').disabled = true; $('phGo').textContent = 'Sending…';
+    try {
+      const { error } = await withTimeout(db.auth.signInWithOtp({ phone }), 20000, 'Sending the code');
+      if (error) throw error;
+      $('phGo').textContent = 'Send it again'; $('phGo').disabled = false;
+      $('codeBox').innerHTML = `<form id="cdF"><label class="f" for="cd">6-digit code we texted you</label><input id="cd" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required>
+        <button class="btn" id="cdGo">Sign in</button></form>`;
+      $('cd').focus();
+      $('cdF').onsubmit = async ev => {
+        ev.preventDefault(); $('cdGo').disabled = true; $('lgMsg').hidden = true;
+        try {
+          const { error } = await withTimeout(db.auth.verifyOtp({ phone, token: $('cd').value.trim(), type: 'sms' }), 20000, 'Checking the code');
+          if (error) throw error; await start();
+        } catch (er) { $('cdGo').disabled = false; fail(/expired|invalid/i.test(errMsg(er)) ? 'That code is wrong or has expired. Try again.' : errMsg(er)); }
+      };
+    } catch (er) { $('phGo').disabled = false; $('phGo').textContent = 'Text me a code'; fail(errMsg(er)); }
+  };
+}
+
+function renderNoMatch() {
+  const who = S.user.phone ? '+' + String(S.user.phone).replace(/^\+/, '') : S.user.email;
+  $('app').innerHTML = `<h1>Waikato Interlocks</h1><div class="card"><h2>We couldn't find your details</h2>
+    <p>You signed in as <b>${esc(who)}</b>, but that doesn't match the mobile number or email Matt has for you.</p>
+    <p>Text Matt on <a href="sms:${MATT.replace(/ /g,'')}">${MATT}</a> with your name and <b>${esc(who)}</b>. Once he's added it, tap Try again.</p>
+    <button class="btn brand" id="again">Try again</button><button class="btn ghost" id="out">Sign out</button></div>`;
+  $('again').onclick = start; $('out').onclick = signOut;
+}
+async function signOut() { await db.auth.signOut(); S.me = null; renderLogin(); }
+
+// ---------- data ----------
+async function load() {
+  const today = nzToday();
+  const [me, bk, av, rav, rt, rq] = await withTimeout(Promise.all([
+    db.rpc('my_profile'),
+    db.from('bookings').select('*').gte('session_date', addDays(today, -60)).neq('status', 'cancelled').order('session_date'),
+    db.rpc('my_availability', { p_kind: 'service' }),
+    db.rpc('my_availability', { p_kind: 'removal' }),
+    db.rpc('my_removal_times'),
+    db.from('service_requests').select('*').order('created_at', { ascending: false }).limit(3)]), 20000, 'Loading');
+  const bad = [me, bk, av, rav, rt, rq].find(r => r.error); if (bad) throw bad.error;
+  S.me = me.data; S.bookings = bk.data; S.rTimes = rt.data || []; S.requests = rq.data || [];
+  const byDay = (a, b) => (a.session_date + String(a.offered_min).padStart(4, '0')).localeCompare(b.session_date + String(b.offered_min).padStart(4, '0'));
+  S.avail = (av.data || []).sort(byDay); S.rAvail = (rav.data || []).sort(byDay);
+}
+async function reload(msg) { try { await load(); } catch (e) { return toast(errMsg(e), true); } render(); if (msg) toast(msg); }
+
+// ---------- render ----------
+function render() {
+  const tabs = [['home','Home'],['book','Book'],['more','Removal'],['me','Me']];
+  $('app').innerHTML = `<div id="view"></div><nav>${tabs.map(([k, n]) => `<button data-tab="${k}" ${S.tab===k?'aria-current="page"':''}>${n}</button>`).join('')}</nav>`;
+  document.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { S.tab = b.dataset.tab; S.confirm = null; S.rPick = null; render(); scrollTo(0, 0); });
+  ({ home: viewHome, book: viewBook, more: viewMore, me: viewMe })[S.tab]();
+}
+
+function bookingCard(b) {
+  const l = LOC(b.location_id), rem = b.kind === 'removal', fl = rem && b.time_locked === false;
+  const est = fl ? (S.rTimes.find(x => x.booking_id === b.id) || {}).est_min ?? b.start_min : b.start_min;
+  const state = !rem ? '<span class="pill ok">Confirmed</span>'
+    : fl ? (b.approved_at ? '<span class="pill">Approved — time confirmed on the morning</span>' : '<span class="pill warn">Waiting for Matt to approve</span>')
+    : '<span class="pill ok">Confirmed</span>';
+  return `<div class="card"><div class="muted">${rem ? (b.details?.temporary ? 'Temporary removal' : 'Removal') : esc(SVC(b.service_id).name)}</div>
+    <div class="big">${longDate(b.session_date)}</div>
+    <div class="big t" style="color:var(--brand)">${fl ? 'about ' : ''}${fmtTime(est)}</div>
+    <p><b>${esc(l.name)}</b><br>${mapLink(l)}</p><p>${state} &nbsp; <b>${money(b.price_cents / 100)}</b> ${b.price_cents ? '<span class="muted">to pay on the day</span>' : ''}</p>
+    ${fl ? '<p class="muted">This time can move later if services are booked ahead of you. It is locked in on the morning.</p>' : ''}
+    <button class="btn ghost" data-cancel="${b.id}">Cancel ${rem ? 'this request' : 'this booking'}</button></div>`;
+}
+function wireCancel() {
+  document.querySelectorAll('[data-cancel]').forEach(b => b.onclick = async () => {
+    if (b.dataset.sure !== '1') { b.dataset.sure = '1'; b.textContent = 'Tap again to cancel'; b.style.borderColor = 'var(--bad)'; return; }
+    b.disabled = true; const { error } = await db.rpc('cancel_my_booking', { p_booking: b.dataset.cancel });
+    if (error) { b.disabled = false; return toast(errMsg(error), true); }
+    reload('Cancelled');
+  });
+}
+
+function viewHome() {
+  const today = nzToday(), e = eng(), d = customerDates(e, today), sv = live('service'), rm = live('removal'), m = monthlyOn(today), w = serviceWindow(e, today);
+  const toApply = d.exitEligible ? Math.round((parseDate(d.exitEligible) - parseDate(today)) / 86400000) : null;
+  $('view').innerHTML = `<h1>Hi ${esc(S.me.first_name || 'there')}</h1>
+    ${sv ? bookingCard(sv) : `<div class="card"><h2>No service booked</h2>${w ? `<p>Your next service is due around <b>${shortDate(w.due)}</b>.</p>` : ''}<button class="btn" id="goBook">Book a service</button></div>`}
+    ${rm ? bookingCard(rm) : ''}
+    <div class="card"><h2>What you pay</h2>${m ? `<div class="slot"><span>${esc(m.name)}</span><b class="t">${money(m.price)}</b></div>` : ''}
+      <p class="muted">Paid on the day. A violation reset is $100 extra, or $60 if it was a mechanic or flat battery.</p></div>
+    <div class="card"><h2>Your dates</h2><div class="facts">
+      <div class="fact"><div class="k">Installed</div><div class="v">${yDate(S.me.install_date)}</div></div>
+      <div class="fact"><div class="k">Apply date</div><div class="v">${yDate(d.exitEligible)}</div></div>
+      <div class="fact"><div class="k">Subsidy</div><div class="v">${d.subsidyEnds ? (d.subsidyActive ? 'Until ' : 'Ended ') + yDate(d.subsidyEnds) : 'None'}</div></div>
+      <div class="fact"><div class="k">Theft protection</div><div class="v">${S.me.theft_protection ? 'Yes' : 'No'}</div></div></div>
+      ${toApply === null ? '' : toApply > 0 ? `<p class="muted">${toApply} day${toApply === 1 ? '' : 's'} until you can apply to NZTA to have it removed. You need a service on or after that date.</p>`
+        : '<p class="muted">You can now apply to NZTA for removal, once you have had a service on or after your apply date.</p>'}</div>`;
+  if ($('goBook')) $('goBook').onclick = () => { S.tab = 'book'; render(); };
+  wireCancel();
+}
+
+function viewBook() {
+  const sv = live('service');
+  if (sv) { $('view').innerHTML = `<h1>Book</h1><div class="note">You already have a booking. Cancel it first if you need a different day.</div>${bookingCard(sv)}`; return wireCancel(); }
+  const opts = [['service', 'Monthly service'], ['vr', 'Violation reset'], ['vr-disc', 'Reset — mechanic / battery']];
+  S.svc = S.svc || 'service';
+  const rows = S.avail.filter(r => S.loc === 'all' || r.location_id === S.loc);
+  const locs = [...new Set(S.avail.map(r => r.location_id))];
+  const svcFor = date => S.svc === 'service' ? monthlyOn(date) : SVC(S.svc);
+  $('view').innerHTML = `<h1>Book</h1>
+    <div class="card"><h2>What for?</h2><div class="chips">${opts.map(([k, n]) => `<button class="chip" aria-pressed="${S.svc===k}" data-svc="${k}">${n}</button>`).join('')}</div>
+      <p class="muted">${S.svc === 'service' ? 'Having a violation reset too? Book the service and tell Matt on the day. It is one appointment.' : 'Only book a reset by itself if you are not due a service.'}</p></div>
+    <div class="card"><h2>Where and when</h2><div class="chips"><button class="chip" aria-pressed="${S.loc==='all'}" data-loc="all">All</button>${locs.map(l => `<button class="chip" aria-pressed="${S.loc===l}" data-loc="${l}">${esc(LOC(l).name)}</button>`).join('')}</div>
+      <p class="muted">Each day has one time: the next free spot.</p><div id="rows">${rows.map((r, i) => { const s = svcFor(r.session_date);
+        return `<div class="slot"><span><b>${shortDate(r.session_date)} · <span class="t">${fmtTime(r.offered_min)}</span></b><span class="muted">${esc(LOC(r.location_id).name)}${s ? ' · ' + money(s.price) : ''}${(r.notes||[]).length ? ' · ' + esc(r.notes.join('; ')) : ''}</span></span>
+          <button class="btn sm" data-pick="${i}">Book</button></div>`; }).join('') || `<p>No times free in the next 3 weeks. Text Matt on ${MATT}.</p>`}</div></div><div id="conf"></div>`;
+  document.querySelectorAll('[data-svc]').forEach(b => b.onclick = () => { S.svc = b.dataset.svc; viewBook(); });
+  document.querySelectorAll('[data-loc]').forEach(b => b.onclick = () => { S.loc = b.dataset.loc; viewBook(); });
+  document.querySelectorAll('[data-pick]').forEach(b => b.onclick = () => confirmBook(rows[+b.dataset.pick], svcFor));
+}
+
+function confirmBook(r, svcFor) {
+  const s = svcFor(r.session_date), l = LOC(r.location_id);
+  if (!s) return toast('That service is not available to you online. Text Matt on ' + MATT, true);
+  const adv = S.svc === 'service' ? applyDateAdvice(eng(), r.session_date, S.avail.map(x => ({ session: { date: x.session_date }, offered: x.offered_min, row: x }))) : null;
+  $('conf').innerHTML = `<div class="card" id="confCard"><h2>Confirm</h2><div class="big">${longDate(r.session_date)}</div><div class="big t" style="color:var(--brand)">${fmtTime(r.offered_min)}</div>
+    <p><b>${esc(l.name)}</b><br>${mapLink(l)}</p><p>${esc(s.name)} · <b>${money(s.price)}</b> <span class="muted">to pay on the day</span></p>
+    ${adv ? `<div class="note"><b>Heads up.</b> ${esc(adv.message.replace(adv.applyDate, yDate(adv.applyDate)))}
+      ${adv.suggestion ? `<button class="btn brand" id="later">Book ${shortDate(adv.suggestion.row.session_date)} at ${esc(LOC(adv.suggestion.row.location_id).name)} instead</button>` : '<p>No later days are open yet. They open 3 weeks ahead.</p>'}</div>` : ''}
+    <button class="btn" id="yes">${adv ? 'Book this day anyway' : 'Confirm booking'}</button><button class="btn ghost" id="no">Back</button></div>`;
+  $('confCard').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  $('no').onclick = () => { $('conf').innerHTML = ''; };
+  if ($('later')) $('later').onclick = () => confirmBook(adv.suggestion.row, svcFor);
+  $('yes').onclick = async () => {
+    $('yes').disabled = true; $('yes').textContent = 'Booking…';
+    const { error } = await db.rpc('book_next_slot', { p_location: r.location_id, p_date: r.session_date, p_service: s.id, p_expected_min: r.offered_min, p_details: {} });
+    if (error) { await reload(); return toast(errMsg(error), true); }
+    S.tab = 'home'; reload('Booked. See you there.');
+  };
+}
+
+// ---------- removal + changeover ----------
+function viewMore() {
+  const rm = live('removal'), today = nzToday(), e = eng(), d = customerDates(e, today), req = S.requests.find(x => x.status === 'requested' || x.status === 'accepted');
+  const early = d.exitEligible && today < d.exitEligible;
+  $('view').innerHTML = `<h1>Removal</h1>
+    ${rm ? bookingCard(rm) : `<div class="card"><h2>Request a removal</h2>
+      <p>${early ? `Your apply date is <b>${yDate(d.exitEligible)}</b>. Before then the interlock can only come out as a <b>temporary removal</b>, and you need approval from NZTA first.`
+                 : 'You need your <b>zero alcohol licence</b> before the interlock can come out. Take a photo of it here.'}</p>
+      <p class="muted">Removals are done after servicing, so the time is approximate until Matt approves it. It is locked in on the morning.</p>
+      <div id="rrows">${S.rAvail.map((r, i) => { const s = removalOn(r.session_date);
+        return `<div class="slot"><span><b>${shortDate(r.session_date)} · <span class="t">about ${fmtTime(r.offered_min)}</span></b><span class="muted">${esc(LOC(r.location_id).name)}${s ? ' · ' + money(s.price) : ''}</span></span>
+        <button class="btn sm" data-rpick="${i}">Choose</button></div>`; }).join('') || `<p>No removal spots in the next 3 weeks. Text Matt on ${MATT}.</p>`}</div></div><div id="rconf"></div>`}
+    <h1>Changeover</h1>
+    ${req ? `<div class="card"><h2>Changeover requested</h2><p>${esc(req.vehicle_year)} ${esc(req.vehicle_make)} ${esc(req.vehicle_model)} · ${esc(req.vehicle_rego)}</p><p><span class="pill warn">${req.status === 'accepted' ? 'Accepted — Matt will confirm a time' : 'Waiting for Matt'}</span></p></div>`
+      : `<div class="card"><h2>Move it to another vehicle</h2><p class="muted">Matt comes to you for this. Tell him about the vehicle and when suits, and he will be in touch with a time. $290 standard, $350 for push-button start, hybrid, EV or European.</p>
+      <form id="chF"><div class="facts"><div><label class="f" for="vRego">Plate</label><input id="vRego" maxlength="6" autocapitalize="characters"></div><div><label class="f" for="vYear">Year</label><input id="vYear" inputmode="numeric" maxlength="4"></div>
+        <div><label class="f" for="vMake">Make</label><input id="vMake" placeholder="Toyota"></div><div><label class="f" for="vModel">Model</label><input id="vModel" placeholder="Hilux"></div>
+        <div><label class="f" for="vStart">Start</label><select id="vStart"><option value="">Choose…</option><option value="key">Key</option><option value="push">Push button</option></select></div>
+        <div><label class="f" for="vFuel">Fuel</label><select id="vFuel"><option value="">Choose…</option><option value="petrol">Petrol</option><option value="diesel">Diesel</option><option value="hybrid">Hybrid</option><option value="ev">Electric</option></select></div></div>
+        <label class="f" for="vAddr">Where will the vehicle be?</label><input id="vAddr" autocomplete="street-address" placeholder="Address">
+        <label class="f" for="vWhen">What day and time suits?</label><input id="vWhen" placeholder="e.g. Friday morning">
+        <div id="chErr" class="note bad" hidden></div><button class="btn brand">Send request</button></form></div>`}`;
+  wireCancel();
+  document.querySelectorAll('[data-rpick]').forEach(b => b.onclick = () => confirmRemoval(S.rAvail[+b.dataset.rpick]));
+  if ($('chF')) $('chF').onsubmit = async ev => {
+    ev.preventDefault();
+    const v = { rego: $('vRego').value, year: $('vYear').value, make: $('vMake').value, model: $('vModel').value, startType: $('vStart').value, fuel: $('vFuel').value };
+    const r = changeoverRequest(eng(), v, { today, siteAddress: $('vAddr').value, approxTime: $('vWhen').value });
+    if (!r.ok) { $('chErr').textContent = Object.values(r.errors).join('. '); $('chErr').hidden = false; return; }
+    const q = r.request;
+    const { error } = await db.rpc('request_changeover', { p: { ...q.vehicle, likelyInstall: q.likelyInstall, siteAddress: q.siteAddress, approxTime: q.approxTime, quote: q.quote } });
+    if (error) return toast(errMsg(error), true);
+    reload(`Request sent. About ${money(q.quote)}. Matt will be in touch.`);
+  };
+}
+
+function confirmRemoval(r) {
+  const need = removalRequirements(eng(), r.session_date), s = removalOn(r.session_date), l = LOC(r.location_id);
+  $('rconf').innerHTML = `<div class="card" id="rc"><h2>${need.temporary ? 'Temporary removal' : 'Removal'}</h2><div class="big">${longDate(r.session_date)}</div>
+    <div class="big t" style="color:var(--brand)">about ${fmtTime(r.offered_min)}</div><p><b>${esc(l.name)}</b><br>${mapLink(l)}</p><p><b>${money(s ? s.price : 110)}</b></p>
+    ${need.temporary ? `<label class="f" for="rRef">NZTA temporary removal approval number</label><input id="rRef" autocomplete="off">`
+                     : `<label class="f" for="rPhoto">Photo of your zero alcohol licence</label><input id="rPhoto" type="file" accept="image/*">`}
+    <div id="rErr" class="note bad" hidden></div><button class="btn" id="rYes">Send removal request</button><button class="btn ghost" id="rNo">Back</button></div>`;
+  $('rc').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  $('rNo').onclick = () => { $('rconf').innerHTML = ''; };
+  const fail = m => { $('rErr').textContent = m; $('rErr').hidden = false; $('rYes').disabled = false; $('rYes').textContent = 'Send removal request'; };
+  $('rYes').onclick = async () => {
+    $('rErr').hidden = true; $('rYes').disabled = true; const details = {};
+    try {
+      if (need.temporary) { const ref = $('rRef').value.trim(); if (!ref) return fail('Enter the approval number NZTA gave you'); details.nztaApprovalRef = ref; }
+      else {
+        const f = $('rPhoto').files[0]; if (!f) return fail('Add a photo of your zero alcohol licence');
+        $('rYes').textContent = 'Uploading photo…';
+        const path = `${S.user.id}/${Date.now()}.jpg`;
+        const { error } = await withTimeout(db.storage.from('licences').upload(path, await shrink(f), { contentType: 'image/jpeg' }), 60000, 'Uploading the photo');
+        if (error) throw error; details.zeroAlcoholLicencePhoto = path;
+      }
+      $('rYes').textContent = 'Sending…';
+      const { error } = await db.rpc('book_next_slot', { p_location: r.location_id, p_date: r.session_date, p_service: 'rem', p_details: details });
+      if (error) throw error;
+      reload('Request sent. Matt will approve it.');
+    } catch (e) { fail(errMsg(e)); }
+  };
+}
+// phone photos are huge: scale to 1600px JPEG before upload
+async function shrink(file) {
+  try {
+    const img = await createImageBitmap(file), k = Math.min(1, 1600 / Math.max(img.width, img.height));
+    const c = Object.assign(document.createElement('canvas'), { width: Math.round(img.width * k), height: Math.round(img.height * k) });
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    return await new Promise(res => c.toBlob(b => res(b || file), 'image/jpeg', 0.82));
+  } catch (e) { return file; }
+}
+
+function viewMe() {
+  const d = customerDates(eng(), nzToday());
+  $('view').innerHTML = `<h1>${esc([S.me.first_name, S.me.last_name].filter(Boolean).join(' '))}</h1>
+    <div class="card"><div class="facts"><div class="fact"><div class="k">Mobile</div><div class="v">${esc(S.me.mobile || '—')}</div></div><div class="fact"><div class="k">Vehicle</div><div class="v">${esc(S.me.vehicle || '—')}</div></div></div>
+      <p class="muted">Something wrong? Text Matt on <a href="sms:${MATT.replace(/ /g,'')}">${MATT}</a>.</p></div>
+    <div class="card"><h2>Apply date</h2><p>Currently <b>${yDate(d.exitEligible)}</b>${S.me.apply_date ? ' (the date NZTA gave you)' : ' (12 months after install)'}.</p>
+      <p class="muted">If you applied and NZTA declined it, they gave you a new date. Enter it here so your bookings line up with it.</p>
+      <form id="adF"><label class="f" for="ad">New date from NZTA</label><input id="ad" type="date" value="${esc(S.me.apply_date || '')}"><div id="adErr" class="note bad" hidden></div><button class="btn brand">Save date</button></form></div>
+    <div class="card"><h2>Keep this handy</h2><p class="muted">In your browser menu choose <b>Add to Home screen</b> to open this like an app.</p><button class="btn ghost" id="out">Sign out</button></div>
+    <p class="muted" style="text-align:center;font-size:.75rem">build 2026-11-10 05:34 UTC</p>`;
+  $('out').onclick = signOut;
+  $('adF').onsubmit = async ev => {
+    ev.preventDefault();
+    const r = setApplyDate(eng(), $('ad').value, { today: nzToday() });
+    if (r.error) { $('adErr').textContent = r.error; $('adErr').hidden = false; return; }
+    const { error } = await db.rpc('set_apply_date', { new_date: $('ad').value });
+    if (error) return toast(errMsg(error), true);
+    reload('Apply date saved');
+  };
+}
+
+db.auth.onAuthStateChange((ev) => { if (ev === 'SIGNED_IN' && !S.me && !S.starting) { S.starting = true; setTimeout(() => start().finally(() => S.starting = false), 0); } });
+start();
+</script>
+</body>
+</html>
