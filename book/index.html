@@ -813,22 +813,23 @@ function wireCancel() {
 }
 
 const EXIT_FORM = 'https://www.nzta.govt.nz/driver-licences/driving-offences-and-penalties/alcohol-sentencing/alcohol-interlock-programme/exit-aid/';
-const EXIT_DAYS = 2;   // NZTA wants the data reading no more than this many days before the application
+const EXIT_DAYS = 2;   // NZTA allows 48 hours between the data reading and the application; we recommend 24
+const EXIT_SVC = ['svc-tp', 'svc', 'sub-tp', 'sub', 'data'];   // a violation reset on its own does not count as the reading visit
 function exitCard(d, today, w) {
   if (!d.exitEligible || today < d.exitEligible) return '';
-  const visits = S.bookings.filter(b => b.kind === 'service' && !['cancelled', 'no_show'].includes(b.status));
+  const visits = S.bookings.filter(b => b.kind === 'service' && EXIT_SVC.includes(b.service_id) && !['cancelled', 'no_show'].includes(b.status));
   const back = addDays(today, -EXIT_DAYS), from = back > d.exitEligible ? back : d.exitEligible;
   const done = visits.filter(b => b.session_date >= from && (b.session_date < today || (b.session_date === today && ['arrived', 'completed'].includes(b.status)))).pop();
   if (done) return `<div class="card" style="border:2px solid var(--brand)"><h2>You can apply to exit now</h2>
-    <p>Your interlock data was read on <b>${shortDate(done.session_date)}</b>. Apply to NZTA by <b>${shortDate(addDays(done.session_date, EXIT_DAYS))}</b>, or you will need another reading.</p>
+    <p>Your interlock data was read on <b>${shortDate(done.session_date)}</b>. <b>Apply to NZTA within 24 hours of that visit if you can.</b> NZTA allows 48 hours, so the latest is the end of <b>${shortDate(addDays(done.session_date, EXIT_DAYS))}</b>. After that you need another reading.</p>
     <a class="btn brand" href="${EXIT_FORM}" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none">Open the NZTA exit form</a>
     <p class="muted" style="margin-top:8px">Once NZTA approves it, come back here and book your removal.</p></div>`;
   const next = visits.find(b => b.session_date >= today);
   if (next) return `<div class="card" style="border:2px solid var(--brand)"><h2>You are eligible to apply to exit</h2>
-    <p>You are booked for <b>${shortDate(next.session_date)}</b>. After that visit the link to the NZTA exit form shows here. You then have ${EXIT_DAYS} days to apply.</p></div>`;
+    <p>You are booked for <b>${shortDate(next.session_date)}</b>. After that visit the link to the NZTA exit form shows here and we email it to you. Apply within 24 hours of the visit (NZTA allows 48).</p></div>`;
   const due = w && today >= w.opens;
   return `<div class="card" style="border:2px solid var(--brand)"><h2>You are eligible to apply to exit</h2>
-    <p><b>Book an appointment first.</b> NZTA needs a reading of your interlock data taken no more than ${EXIT_DAYS} days before you apply. The link to the NZTA form shows here once you have had your visit.</p>
+    <p><b>Book an appointment first.</b> NZTA needs a reading of your interlock data taken no more than 48 hours before you apply. The link to the NZTA form shows here once you have had your visit.</p>
     ${due ? '<p class="muted">Your monthly service is due, and it includes the data reading.</p><button class="btn brand" data-exit="service">Book my monthly service</button><button class="btn ghost" data-exit="data">Data reading only, $60</button>'
           : '<p class="muted">Not due a service yet? A data reading is all you need.</p><button class="btn brand" data-exit="data">Book a data reading, $60</button><button class="btn ghost" data-exit="service">Book my monthly service instead</button>'}</div>`;
 }
@@ -1011,7 +1012,7 @@ function viewMe() {
       <details style="margin-top:10px"><summary class="muted">NZTA gave me an actual date to apply instead</summary>
       <form id="adF"><label class="f" for="ad">Date you can next apply</label><input id="ad" type="date" value="${esc(S.me.apply_date || '')}"><div id="adErr" class="note bad" hidden></div><button class="btn">Save date</button></form></details></div>
     <div class="card"><h2>Keep this handy</h2><p class="muted">In your browser menu choose <b>Add to Home screen</b> to open this like an app.</p><button class="btn ghost" id="out">Sign out</button><p class="muted" style="text-align:center"><a href="../privacy/">Privacy policy</a></p></div>
-    <p class="muted" style="text-align:center;font-size:.75rem">build 2026-11-16 20:31 UTC</p>`;
+    <p class="muted" style="text-align:center;font-size:.75rem">build 2026-11-16 20:36 UTC</p>`;
   $('out').onclick = signOut;
   if ($('prF')) $('prF').onsubmit = async ev => {
     ev.preventDefault();
