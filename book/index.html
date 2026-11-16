@@ -324,7 +324,10 @@ function customerDates(c, today) {
     applyDateSource: c.applyDate ? (c.applyDateSetBy || 'customer') : 'install',
     subsidyStart: subStart,
     subsidyEnds,
-    subsidyActive: !!subsidyEnds && (!today || today < subsidyEnds),
+    // The subsidy stays ACTIVE until staff switch it off (when Dräger emails to say it has ended).
+    // subsidyEnds is only the expected end; subsidyOverdue flags that the 15 months have passed.
+    subsidyActive: !!c.subsidised,
+    subsidyOverdue: !!c.subsidised && !!subsidyEnds && !!today && today >= subsidyEnds,
   };
 }
 
@@ -741,7 +744,7 @@ function viewHome() {
     <div class="card"><h2>Your dates</h2><div class="facts">
       <div class="fact"><div class="k">Installed</div><div class="v">${yDate(S.me.install_date)}</div></div>
       <div class="fact"><div class="k">Apply date</div><div class="v">${yDate(d.exitEligible)}</div></div>
-      <div class="fact"><div class="k">Subsidy</div><div class="v">${d.subsidyEnds ? (d.subsidyActive ? 'Until ' : 'Ended ') + yDate(d.subsidyEnds) : 'None'}</div></div>
+      <div class="fact"><div class="k">Subsidy</div><div class="v">${d.subsidyActive ? (d.subsidyEnds && !d.subsidyOverdue ? 'Until ' + yDate(d.subsidyEnds) : 'Active') : 'None'}</div></div>
       <div class="fact"><div class="k">Theft protection</div><div class="v">${S.me.theft_protection ? 'Yes' : 'No'}</div></div></div>
       ${toApply === null ? '' : toApply > 0 ? `<p class="muted">${toApply} day${toApply === 1 ? '' : 's'} until you can apply to NZTA to have it removed. You need a service on or after that date.</p>`
         : '<p class="muted">You can now apply to NZTA for removal, once you have had a service on or after your apply date.</p>'}</div>`;
@@ -896,7 +899,7 @@ function viewMe() {
       <p class="muted">If you applied and NZTA declined it, they gave you a new date. Enter it here so your bookings line up with it.</p>
       <form id="adF"><label class="f" for="ad">New date from NZTA</label><input id="ad" type="date" value="${esc(S.me.apply_date || '')}"><div id="adErr" class="note bad" hidden></div><button class="btn brand">Save date</button></form></div>
     <div class="card"><h2>Keep this handy</h2><p class="muted">In your browser menu choose <b>Add to Home screen</b> to open this like an app.</p><button class="btn ghost" id="out">Sign out</button><p class="muted" style="text-align:center"><a href="../privacy/">Privacy policy</a></p></div>
-    <p class="muted" style="text-align:center;font-size:.75rem">build 2026-11-16 08:23 UTC</p>`;
+    <p class="muted" style="text-align:center;font-size:.75rem">build 2026-11-16 08:30 UTC</p>`;
   $('out').onclick = signOut;
   if ($('prF')) $('prF').onsubmit = async ev => {
     ev.preventDefault();
