@@ -606,9 +606,9 @@ const hmOf = v => { const [h, m] = String(v).split(':').map(Number); return h * 
 const S = { view: 'run', date: null, sessions: [], bookings: [], sel: null, extras: [], custQ: '', custSel: null, customers: [], priceReqs: [], custFilter: 'all' };
 const PR = id => S.priceReqs.find(r => r.customer_id === id);
 async function loadPriceReqs() {
-  const [pr, nu] = await Promise.all([db.from('price_requests').select('*').eq('status', 'requested'), db.from('customers').select('id').eq('self_registered', true).limit(200)]);
-  S.priceReqs = pr.data || [];
-  const todo = new Set([...S.priceReqs.map(r => r.customer_id), ...(nu.data || []).map(c => c.id)]).size;
+  const [pr, nu, eq] = await Promise.all([db.from('price_requests').select('*').eq('status', 'requested'), db.from('customers').select('id').eq('self_registered', true).limit(200), db.from('enquiries').select('id').eq('status', 'new').limit(200)]);
+  S.priceReqs = pr.data || []; S.enqCount = (eq.data || []).length;
+  const todo = new Set([...S.priceReqs.map(r => r.customer_id), ...(nu.data || []).map(c => c.id)]).size + S.enqCount;
   if (todo !== S.todo) { S.todo = todo; const b = document.querySelector('[data-v="cust"]'); if (b) b.innerHTML = 'Customers' + (todo ? `<span class="n">${todo}</span>` : ''); }
 }
 
@@ -633,7 +633,7 @@ function renderLogin(msg) {
     <label class="label" for="pw">Password</label><input id="pw" type="password" autocomplete="current-password" required>
     <button class="btn brand" id="loginBtn">Log in</button>
     <div id="loginMsg" class="alert" hidden></div>
-    <div class="empty" style="font-size:.75rem;margin-top:10px">build 2026-11-16 08:59 UTC</div></form>`;
+    <div class="empty" style="font-size:.75rem;margin-top:10px">build 2026-11-16 09:20 UTC</div></form>`;
   const btn = $('loginBtn'), box = $('loginMsg');
   const fail = m => { btn.disabled = false; btn.textContent = 'Log in'; box.textContent = m; box.hidden = false; };
   $('loginForm').onsubmit = async e => {
@@ -1067,12 +1067,13 @@ async function renderSchedule() {
 }
 
 async function renderCustomers() {
-  const F = [['all', 'All'], ['attention', 'Needs a look'], ['quiet', 'No booking in 5 weeks']];
+  const F = [['all', 'All'], ['attention', 'Needs a look'], ['quiet', 'No booking in 5 weeks'], ['enq', 'New enquiries' + (S.enqCount ? ' (' + S.enqCount + ')' : '')]];
   $('body').innerHTML = `<div class="layout"><div class="panel"><input id="cq" placeholder="Search name, mobile, email or rego" style="width:100%" value="${esc(S.custQ)}" autocomplete="off">
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0">${F.map(([k, n]) => `<button class="chip" aria-pressed="${S.custFilter===k}" data-cf="${k}">${n}</button>`).join('')}</div>
     <div class="empty" id="ccount"></div><div class="list" id="clist"></div></div>
     <aside class="panel side" id="cside"><p class="empty">Pick a customer to edit their install date, subsidy and theft protection.</p></aside></div>`;
   const load = async () => {
+    if (S.custFilter === 'enq') return loadEnquiries();
     const q = $('cq').value.trim().replace(/[,()%]/g, ' '); S.custQ = q;
     await loadPriceReqs();
     let req = db.from('customers').select('*').order('first_name').limit(S.custFilter === 'quiet' ? 1000 : 100);
@@ -1092,6 +1093,51 @@ async function renderCustomers() {
   };
   document.querySelectorAll('[data-cf]').forEach(b => b.onclick = () => { S.custFilter = b.dataset.cf; renderCustomers(); });
   let t; $('cq').oninput = () => { clearTimeout(t); t = setTimeout(load, 250); }; load();
+}
+// ---------- new customer enquiries (from the form link) ----------
+const ENQ_LINK = 'https://mattaponz.github.io/waikato-booking/book/?new';
+const ENQ_ST = { new: 'New', contacted: 'Contacted', pencilled: 'Install pencilled in', installed: 'Installed', closed: 'Not going ahead' };
+const vehLine = v => [v.year, v.make, v.model, v.rego, v.start === 'push' ? '(push-button)' : v.start === 'key' ? '(key start)' : '', v.fuel].filter(Boolean).join(' ');
+async function loadEnquiries() {
+  const { data, error } = await db.from('enquiries').select('*').in('status', ['new', 'contacted', 'pencilled']).order('created_at', { ascending: false }).limit(200);
+  if (error) return toast(errMsg(error), true);
+  S.enquiries = data;
+  $('ccount').innerHTML = `Text people this link so they can send you their details: <b style="word-break:break-all">${ENQ_LINK}</b> <button class="chip" id="enqCopy">Copy link</button>`;
+  $('enqCopy').onclick = async () => { try { await navigator.clipboard.writeText(ENQ_LINK); toast('Link copied'); } catch (e) { toast('Could not copy - press and hold the link instead', true); } };
+  $('clist').innerHTML = data.map(e => `<div class="item" data-e="${e.id}"><span><b>${esc(e.first_name + ' ' + e.last_name)}</b> <span class="pill p-pencilled">${ENQ_ST[e.status]}</span><br><span class="empty">${esc(e.mobile)}${e.town ? ' · ' + esc(e.town) : ''}</span></span>
+    <span class="empty" style="text-align:right">${billDay(e.created_at)}${e.install_date ? '<br>Install ' + yDate(e.install_date) : ''}</span></div>`).join('') || '<div class="empty">No open enquiries</div>';
+  $('clist').querySelectorAll('[data-e]').forEach(it => it.onclick = () => { editEnquiry(S.enquiries.find(e => e.id === it.dataset.e)); if (matchMedia('(max-width:960px)').matches) setTimeout(() => $('cside')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); });
+}
+function editEnquiry(e) {
+  const v = e.vehicle || {}, row = (l, x) => x ? `<div class="fact"><div class="label">${l}</div><div class="v">${x}</div></div>` : '';
+  $('cside').innerHTML = `<h2>${esc(e.first_name + ' ' + e.last_name)}</h2><div class="empty">Sent ${billDay(e.created_at)}</div>
+    <div class="facts">${row('Mobile', `<a href="tel:${esc(e.mobile.replace(/ /g, ''))}">${esc(e.mobile)}</a>`)}${row('Email', esc(e.email || ''))}${row('Town', esc(e.town || ''))}${row('Service area', e.area ? esc(LOC(e.area)) : '')}
+      ${row('Vehicle', esc(vehLine(v)))}${row('Has interlock licence', { yes: 'Yes', applied: 'Applied', no: 'Not yet' }[e.has_licence] || '')}${row('Can apply from', e.licence_date ? yDate(e.licence_date) : '')}${row('Subsidy', { yes: 'Thinks yes', no: 'No', unsure: 'Not sure' }[e.subsidy] || '')}</div>
+    ${e.note ? `<div class="alert" style="background:var(--warn-soft);color:var(--ink)">${esc(e.note)}</div>` : ''}
+    <form id="eqF"><label class="label" for="eqSt">Status</label><select id="eqSt" style="width:100%">${Object.entries(ENQ_ST).map(([k, n]) => `<option value="${k}" ${e.status === k ? 'selected' : ''}>${n}</option>`).join('')}</select>
+      <label class="label" for="eqLd" style="margin-top:8px">Date they can apply for their licence</label><input type="date" id="eqLd" style="width:100%" value="${e.licence_date || ''}">
+      <label class="label" for="eqId" style="margin-top:8px">Install pencilled in for</label><input type="date" id="eqId" style="width:100%" value="${e.install_date || ''}">
+      <label class="label" for="eqIn" style="margin-top:8px">Time and place (goes in their reminder)</label><input id="eqIn" style="width:100%" placeholder="e.g. 10am at your place" value="${esc(e.install_note || '')}">
+      <label class="label" for="eqSn" style="margin-top:8px">Your notes</label><textarea id="eqSn" rows="2" style="width:100%">${esc(e.staff_note || '')}</textarea>
+      <div class="empty" style="margin:6px 0">Reminders go by email (text if no email): 14 days before and on their licence date, then 7 days and 1 day before the install.</div>
+      <button class="btn" style="width:100%">Save</button></form>
+    <div style="margin-top:8px">${e.customer_id ? '<div class="empty">Customer record made — find them under All.</div>' : '<button class="btn ghost" id="eqMk" style="width:100%">Make customer record</button>'}</div>`;
+  $('eqF').onsubmit = async ev => {
+    ev.preventDefault();
+    const idate = $('eqId').value || null, st = $('eqSt').value;
+    const up = { status: idate && st === 'new' ? 'pencilled' : st, licence_date: $('eqLd').value || null, install_date: idate, install_note: $('eqIn').value.trim() || null, staff_note: $('eqSn').value.trim() || null };
+    if (idate !== (e.install_date || null)) Object.assign(up, { r_inst_7: null, r_inst_1: null });
+    if (up.licence_date !== (e.licence_date || null)) Object.assign(up, { r_elig_14: null, r_elig_0: null });
+    const { error } = await db.from('enquiries').update(up).eq('id', e.id);
+    if (error) return toast(errMsg(error), true);
+    toast('Saved'); await loadPriceReqs(); renderCustomers();
+  };
+  if ($('eqMk')) $('eqMk').onclick = async () => {
+    $('eqMk').disabled = true;
+    const { error } = await db.rpc('enquiry_to_customer', { p_enquiry: e.id });
+    if (error) { $('eqMk').disabled = false; return toast(errMsg(error), true); }
+    toast('Customer record made — set their install date and price under All'); e.customer_id = true; editEnquiry(e);
+  };
 }
 function editCustomer(c, target = 'cside', after = renderCustomers) {
   const d = customerDates(eng(c), nzToday()), el = $(target);
