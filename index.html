@@ -638,7 +638,7 @@ function renderLogin(msg) {
     <label class="label" for="pw">Password</label><input id="pw" type="password" autocomplete="current-password" required>
     <button class="btn brand" id="loginBtn">Log in</button>
     <div id="loginMsg" class="alert" hidden></div>
-    <div class="empty" style="font-size:.75rem;margin-top:10px">build 2026-11-16 09:36 UTC</div></form>`;
+    <div class="empty" style="font-size:.75rem;margin-top:10px">build 2026-11-16 09:39 UTC</div></form>`;
   const btn = $('loginBtn'), box = $('loginMsg');
   const fail = m => { btn.disabled = false; btn.textContent = 'Log in'; box.textContent = m; box.hidden = false; };
   $('loginForm').onsubmit = async e => {
@@ -1195,6 +1195,18 @@ function editCustomer(c, target = 'cside', after = renderCustomers) {
     const { error } = await db.from('customers').update(upd).eq('id', c.id);
     if (error) return toast(/duplicate|unique/i.test(errMsg(error)) ? 'Another customer already has that mobile. Use "Join with existing customer" instead.' : errMsg(error), true);
     toast('Saved'); after();
+  };
+  el.insertAdjacentHTML('beforeend', `<div style="margin-top:18px;border-top:1px solid var(--line);padding-top:10px"><button class="chip" id="delC" style="color:var(--bad)">Delete customer</button><div id="delBox"></div></div>`);
+  $('delC').onclick = () => {
+    $('delBox').innerHTML = `<div class="alert">Delete <b>${esc(fullName(c))}</b> and their past bookings for good? This cannot be undone.
+      <div class="grid2" style="margin-top:8px"><button class="btn" id="delYes" style="background:var(--bad);border-color:var(--bad)">Yes, delete</button><button class="btn ghost" id="delNo">Keep</button></div></div>`;
+    $('delNo').onclick = () => { $('delBox').innerHTML = ''; };
+    $('delYes').onclick = async () => {
+      $('delYes').disabled = true;
+      const { error } = await db.rpc('delete_customer', { p_customer: c.id });
+      if (error) { $('delBox').innerHTML = `<div class="alert">${esc(errMsg(error))}</div>`; return; }
+      toast('Customer deleted'); if (target === 'side') { S.sel = null; } after();
+    };
   };
 }
 
