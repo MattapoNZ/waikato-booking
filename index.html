@@ -5,6 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Waikato Interlocks — Run sheet</title>
 <meta name="theme-color" content="#1f4d5c">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Run sheet">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@600;700&family=Source+Sans+3:wght@400;600;700&family=JetBrains+Mono:wght@500&display=swap">
 <style>
 :root{--bg:#f3f4f2;--panel:#fff;--ink:#18232b;--muted:#5d6b73;--line:#dde2e0;--accent:#d98a00;--accent-ink:#1b1300;--brand:#1f4d5c;--brand-soft:#e3eef0;
@@ -22,6 +29,19 @@ input,select,textarea{font:inherit;color:var(--ink);background:var(--panel);bord
 .top{position:sticky;top:0;z-index:5;background:var(--bg);display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;justify-content:space-between;padding:12px 0 10px;border-bottom:1px solid var(--line)}
 .top h1{font-size:1.4rem}
 .tabs{display:flex;gap:4px;flex-wrap:wrap}
+.tabs .n{display:inline-block;min-width:18px;padding:0 5px;margin-left:4px;border-radius:999px;background:var(--bad);color:#fff;font-size:.72rem;font-weight:700;line-height:18px;text-align:center}
+@media (max-width:700px){
+  body{padding-bottom:calc(76px + env(safe-area-inset-bottom))}
+  .top{padding:8px 0 6px}
+  .top h1{font-size:1.15rem}
+  .top .tabs{position:fixed;left:0;right:0;bottom:0;z-index:15;background:var(--panel);border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(4,1fr);gap:0;padding:6px 6px calc(6px + env(safe-area-inset-bottom))}
+  .top .tabs .chip{border:0;border-radius:10px;background:none;padding:10px 2px;font-size:.86rem;min-height:44px}
+  .top .tabs .chip[aria-pressed="true"]{background:var(--brand-soft);color:var(--brand);font-weight:700}
+  .top .tools{display:flex;gap:4px}
+  .toast{bottom:calc(84px + env(safe-area-inset-bottom))}
+  .btn{min-height:44px}
+}
+@media (min-width:701px){.top .tools{display:contents}}
 .chip{border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:999px;padding:5px 12px;font-size:.9rem;white-space:nowrap}
 .chip[aria-pressed="true"]{background:var(--brand);border-color:var(--brand);color:var(--panel);font-weight:600}
 .btn{border:0;border-radius:8px;padding:9px 14px;font-weight:700;background:var(--accent);color:var(--accent-ink);white-space:nowrap}
@@ -579,7 +599,12 @@ const hmOf = v => { const [h, m] = String(v).split(':').map(Number); return h * 
 // ---------- state ----------
 const S = { view: 'run', date: null, sessions: [], bookings: [], sel: null, extras: [], custQ: '', custSel: null, customers: [], priceReqs: [], custFilter: 'all' };
 const PR = id => S.priceReqs.find(r => r.customer_id === id);
-async function loadPriceReqs() { const { data } = await db.from('price_requests').select('*').eq('status', 'requested'); S.priceReqs = data || []; }
+async function loadPriceReqs() {
+  const [pr, nu] = await Promise.all([db.from('price_requests').select('*').eq('status', 'requested'), db.from('customers').select('id').eq('self_registered', true).limit(200)]);
+  S.priceReqs = pr.data || [];
+  const todo = new Set([...S.priceReqs.map(r => r.customer_id), ...(nu.data || []).map(c => c.id)]).size;
+  if (todo !== S.todo) { S.todo = todo; const b = document.querySelector('[data-v="cust"]'); if (b) b.innerHTML = 'Customers' + (todo ? `<span class="n">${todo}</span>` : ''); }
+}
 
 // ---------- auth ----------
 async function start() {
@@ -602,7 +627,7 @@ function renderLogin(msg) {
     <label class="label" for="pw">Password</label><input id="pw" type="password" autocomplete="current-password" required>
     <button class="btn brand" id="loginBtn">Log in</button>
     <div id="loginMsg" class="alert" hidden></div>
-    <div class="empty" style="font-size:.75rem;margin-top:10px">build 2026-11-16 07:49 UTC</div></form>`;
+    <div class="empty" style="font-size:.75rem;margin-top:10px">build 2026-11-16 08:01 UTC</div></form>`;
   const btn = $('loginBtn'), box = $('loginMsg');
   const fail = m => { btn.disabled = false; btn.textContent = 'Log in'; box.textContent = m; box.hidden = false; };
   $('loginForm').onsubmit = async e => {
@@ -650,11 +675,11 @@ async function loadBookings(noLock) {
 // ---------- render ----------
 function render() {
   $('app').innerHTML = `<header class="top"><h1>Run sheet</h1>
+      <span class="tools"><button class="chip" id="refresh">Refresh</button><button class="chip" id="logout">Log out</button></span>
       <nav class="tabs"><button class="chip" aria-pressed="${S.view==='run'}" data-v="run">Sessions</button>
-        <button class="chip" aria-pressed="${S.view==='cust'}" data-v="cust">Customers</button>
+        <button class="chip" aria-pressed="${S.view==='cust'}" data-v="cust">Customers${S.todo ? `<span class="n">${S.todo}</span>` : ''}</button>
         <button class="chip" aria-pressed="${S.view==='sched'}" data-v="sched">Schedule</button>
-        <button class="chip" aria-pressed="${S.view==='texts'}" data-v="texts">Messages</button>
-        <button class="chip" id="refresh">Refresh</button><button class="chip" id="logout">Log out</button></nav></header>
+        <button class="chip" aria-pressed="${S.view==='texts'}" data-v="texts">Messages</button></nav></header>
     <div id="body"></div>`;
   document.querySelectorAll('[data-v]').forEach(b => b.onclick = () => { S.view = b.dataset.v; render(); });
   $('refresh').onclick = async () => { await loadSessions(); render(); toast('Updated'); };
@@ -720,6 +745,7 @@ function renderRun() {
   document.querySelectorAll('[data-add]').forEach(b => b.onclick = () => { renderAddBooking(b.dataset.add); showSide(); });
   document.querySelectorAll('[data-walk]').forEach(b => b.onclick = () => { renderAddBooking(b.dataset.walk, true); showSide(); });
   document.querySelectorAll('[data-msg]').forEach(b => b.onclick = () => { renderMessage(b.dataset.msg); showSide(); });
+  document.querySelector('.datebar [aria-pressed="true"]')?.scrollIntoView({ inline: 'center', block: 'nearest' });
   if (S.sel) showSide();
   renderSide();
 }
