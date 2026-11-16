@@ -349,7 +349,7 @@ function addMonths(s, n) {
 
 // Subsidy runs 15 months from install, or from the later date they obtained it (subsidyStart).
 function customerDates(c, today) {
-  const subStart = c.subsidised ? (c.subsidyStart && c.subsidyStart > c.installDate ? c.subsidyStart : c.installDate) : null;
+  const subStart = c.subsidised ? (c.subsidyStart || c.installDate) : null;   // the date on the NZTA subsidy letter if we have it, else the install date
   const subsidyEnds = subStart ? addMonths(subStart, c.subsidyMonths ?? 15) : null;
   const standardExit = c.installDate ? addMonths(c.installDate, 12) : null;
   return {
@@ -364,11 +364,14 @@ function customerDates(c, today) {
   };
 }
 
-// Monthly service window = install day-of-month each month, ±7 days.
+// Monthly service window = rollover day-of-month each month, ±7 days.
+// The rollover date is the install date unless it was changed (e.g. a second device was fitted later).
 function serviceWindow(c, onOrAfter) {
-  if (!c.installDate) return null;
-  for (let i = 1; i < 60; i++) {
-    const due = addMonths(c.installDate, i);
+  const anchor = c.rolloverDate || c.installDate;
+  if (!anchor) return null;
+  for (let i = 0; i < 600; i++) {
+    const due = addMonths(anchor, i);
+    if (i === 0 && !c.rolloverDate) continue;   // install day itself is not a service
     if (addDays(due, 7) >= onOrAfter) return { due, opens: addDays(due, -7), closes: addDays(due, 7) };
   }
   return null;
@@ -582,7 +585,7 @@ const fullName = c => [c.first_name, c.last_name].filter(Boolean).join(' ') || '
 const LOC = id => (locations.find(l => l.id === id) || { name: id }).name;
 const SVC = id => services.find(s => s.id === id) || { id, name: id, price: 0 };
 // DB row -> engine customer shape
-const eng = c => ({ id: c.id, installDate: c.install_date, subsidised: c.subsidised, subsidyStart: c.subsidy_start, theftProtection: c.theft_protection,
+const eng = c => ({ id: c.id, installDate: c.install_date, rolloverDate: c.rollover_date, subsidised: c.subsidised, subsidyStart: c.subsidy_start, theftProtection: c.theft_protection,
                     applyDate: c.apply_date, applyDateSetBy: c.apply_date_set_by, alerts: c.alerts });
 let toastT;
 function toast(msg, bad) { const t = $('toast'); t.textContent = msg; t.className = 'toast' + (bad ? ' bad' : ''); t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, 4000); }
@@ -627,7 +630,7 @@ function renderLogin(msg) {
     <label class="label" for="pw">Password</label><input id="pw" type="password" autocomplete="current-password" required>
     <button class="btn brand" id="loginBtn">Log in</button>
     <div id="loginMsg" class="alert" hidden></div>
-    <div class="empty" style="font-size:.75rem;margin-top:10px">build 2026-11-16 08:01 UTC</div></form>`;
+    <div class="empty" style="font-size:.75rem;margin-top:10px">build 2026-11-16 08:23 UTC</div></form>`;
   const btn = $('loginBtn'), box = $('loginMsg');
   const fail = m => { btn.disabled = false; btn.textContent = 'Log in'; box.textContent = m; box.hidden = false; };
   $('loginForm').onsubmit = async e => {
@@ -1068,11 +1071,12 @@ function editCustomer(c, target = 'cside', after = renderCustomers) {
       <label>Install date<input id="f_inst" type="date" value="${esc(c.install_date)}"></label><label>Vehicle<input id="f_veh" value="${esc(c.vehicle)}"></label>
       <label style="flex-direction:row;align-items:center;gap:6px"><input type="checkbox" id="f_sub" ${c.subsidised?'checked':''}> Subsidised</label>
       <label style="flex-direction:row;align-items:center;gap:6px"><input type="checkbox" id="f_tp" ${c.theft_protection?'checked':''}> Theft protection</label>
-      <label>Subsidy obtained (if later than install)<input id="f_ss" type="date" value="${esc(c.subsidy_start)}"></label>
+      <label>Subsidy start (date on the NZTA letter, if not the install date)<input id="f_ss" type="date" value="${esc(c.subsidy_start)}"></label>
       <label>NZTA apply date (if changed)<input id="f_ad" type="date" value="${esc(c.apply_date)}"></label>
+      <label class="full">Service rollover date (if different from install, e.g. second device fitted)<input id="f_ro" type="date" value="${esc(c.rollover_date)}"></label>
       <label class="full">Alert (shows in red at checkout)<input id="f_al" value="${esc(c.alerts)}"></label>
       <label class="full">Notes<textarea id="f_no" rows="3">${esc(c.notes)}</textarea></label>
-      <div class="full empty">Apply date ${yDate(d.exitEligible)} · subsidy ${d.subsidyEnds ? (d.subsidyActive ? 'until ' : 'ended ') + yDate(d.subsidyEnds) : 'none'}</div>
+      <div class="full empty">Apply date ${yDate(d.exitEligible)} · subsidy ${d.subsidyEnds ? (d.subsidyActive ? 'until ' : 'ended ') + yDate(d.subsidyEnds) : 'none'}${(w => w ? ' · next service due ' + yDate(w.due) : '')(serviceWindow(eng(c), nzToday()))}</div>
       <div class="full"><button class="btn brand">Save</button></div></form>`;
   if ($('edBack')) $('edBack').onclick = after;
   wirePriceReq(el, after);
@@ -1098,7 +1102,7 @@ function editCustomer(c, target = 'cside', after = renderCustomers) {
     e.preventDefault();
     const v = id => $(id).value.trim() || null;
     const upd = { first_name: v('f_first'), last_name: v('f_last'), mobile: v('f_mob'), email: v('f_em'), install_date: v('f_inst'), vehicle: v('f_veh'),
-      subsidised: $('f_sub').checked, theft_protection: $('f_tp').checked, subsidy_start: v('f_ss'), alerts: v('f_al'), notes: v('f_no') };
+      subsidised: $('f_sub').checked, theft_protection: $('f_tp').checked, subsidy_start: v('f_ss'), rollover_date: v('f_ro'), alerts: v('f_al'), notes: v('f_no') };
     const ad = v('f_ad'); if (ad !== c.apply_date) Object.assign(upd, { apply_date: ad, apply_date_set_by: ad ? 'staff' : null, apply_date_set_on: ad ? new Date().toISOString() : null });
     const { error } = await db.from('customers').update(upd).eq('id', c.id);
     if (error) return toast(/duplicate|unique/i.test(errMsg(error)) ? 'Another customer already has that mobile. Use "Join with existing customer" instead.' : errMsg(error), true);
