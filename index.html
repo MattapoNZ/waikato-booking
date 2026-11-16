@@ -651,7 +651,7 @@ function renderLogin(msg) {
     <label class="label" for="pw">Password</label><input id="pw" type="password" autocomplete="current-password" required>
     <button class="btn brand" id="loginBtn">Log in</button>
     <div id="loginMsg" class="alert" hidden></div>
-    <div class="empty" style="font-size:.75rem;margin-top:10px">build 2026-11-16 20:31 UTC</div></form>`;
+    <div class="empty" style="font-size:.75rem;margin-top:10px">build 2026-11-16 21:28 UTC</div></form>`;
   const btn = $('loginBtn'), box = $('loginMsg');
   const fail = m => { btn.disabled = false; btn.textContent = 'Log in'; box.textContent = m; box.hidden = false; };
   $('loginForm').onsubmit = async e => {
@@ -748,7 +748,8 @@ function renderRun() {
      const row = (t, b) => {
        if (!b) { const h = held(t); return `<tr class="free"><td class="t">${fmtTime(t)}</td><td colspan="5">${h ? `— held for removal · ${esc(fullName(h.customer || {}))} —` : '— free —'}</td></tr>`; }
        const c = b.customer || {}, flag = profileFlag(c, b), fl = floating(b);
-       const pill = fl ? (b.approved_at ? ['pencilled', 'Approved · time not locked'] : ['pencilled', 'Needs approval']) : [b.status, STATUS[b.status] || b.status];
+       const pill = fl ? (b.approved_at ? ['pencilled', 'Approved · time not locked'] : ['pencilled', 'Needs approval'])
+         : b.kind === 'service' && b.status === 'pencilled' ? ['pencilled', 'Request · confirm?'] : [b.status, STATUS[b.status] || b.status];
        return `<tr class="row ${b.id===S.sel?'sel':''}" data-b="${b.id}"><td class="t">${fl ? '≈ ' + fmtTime(rTime(b)) : fmtTime(b.start_min)}</td>
          <td><b>${esc(fullName(c))}</b><span class="m-only empty">Installed ${yDate(c.install_date)} · ${esc(SVC(b.service_id).name)} · ${money(b.price_cents/100)}</span>${flag?`<span class="flag" style="display:block">⚑ ${esc(flag)}</span>`:''}</td><td class="t d-only">${yDate(c.install_date)}</td>
          <td class="d-only">${esc(SVC(b.service_id).name)}</td><td class="t d-only">${money(b.price_cents/100)}</td><td><span class="pill p-${pill[0]}">${pill[1]}</span></td></tr>`;
@@ -836,7 +837,7 @@ function renderSide() {
       <div class="grid2"><button class="btn brand" id="apRem">Approve removal</button><button class="btn ghost" data-st="cancelled">Decline</button></div>` : ''}
     ${fl && b.approved_at ? `<div class="alert" style="background:var(--warn-soft);color:var(--ink)">Approved. The time is still approximate and locks in on the morning of the session.</div>
       <div class="grid2"><button class="btn" id="lockRem">Lock time now</button><button class="btn ghost" data-st="cancelled">Decline</button></div>` : ''}
-    ${!fl && b.status === 'pencilled' ? `<div class="grid2"><button class="btn brand" data-st="confirmed">Accept removal</button><button class="btn ghost" data-st="cancelled">Decline</button></div>` : ''}
+    ${!fl && b.status === 'pencilled' ? `${b.kind === 'service' ? '<div class="alert" style="background:var(--warn-soft);color:var(--ink)">Late request, made after online bookings closed. The customer has been told not to come until you confirm. They get an email either way.</div>' : ''}<div class="grid2"><button class="btn brand" data-st="confirmed">${b.kind === 'removal' ? 'Accept removal' : 'Confirm request'}</button><button class="btn ghost" data-st="cancelled">Decline</button></div>` : ''}
     <div style="margin-top:10px"><div class="co-line"><span>${esc(b.details?.temporary ? 'Temporary removal' : SVC(b.service_id).name)}</span><span class="t">${money(b.price_cents/100)}</span></div>
       ${S.extras.map(id => `<div class="co-line"><span>${esc(SVC(id).name)}</span><span class="t">${money(SVC(id).price)}</span></div>`).join('')}
       ${paid ? '' : `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"><button class="chip" data-x="vr">+ Violation reset $100</button><button class="chip" data-x="vr-disc">+ Mech/battery $60</button>${S.extras.length?'<button class="chip" id="clrX">Clear</button>':''}</div>
