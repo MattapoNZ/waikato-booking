@@ -544,7 +544,39 @@ function urlAuthError() {
   if (e) history.replaceState(null, '', location.pathname);
   return e ? 'Sign-in did not finish: ' + e.replace(/\+/g, ' ') + '. Please try again, or text Matt on ' + MATT + '.' : null;
 }
+// ---------- pay a bill (link from an email or text; no sign-in needed) ----------
+async function renderPay(token) {
+  const done = new URLSearchParams(location.search).get('done');
+  $('app').innerHTML = `<h1>Waikato Interlocks</h1><div class="card" id="pb"><p class="muted">${done ? 'Checking your payment…' : 'Finding your bill…'}</p></div>
+    <p class="muted" style="text-align:center;margin-top:16px">Questions? Text or call Matt on <a href="tel:${MATT.replace(/ /g,'')}">${MATT}</a></p>`;
+  let v = null, err = null;
+  for (let i = 0; i < (done ? 6 : 1); i++) {
+    const r = await db.rpc('bill_view', { p_token: token }); v = r.data; err = r.error;
+    if (err || !v || v.status !== 'sent') break;
+    if (done && i < 5) await new Promise(res => setTimeout(res, 2500));
+  }
+  const pb = $('pb');
+  if (err) return pb.innerHTML = `<div class="note bad">${esc(errMsg(err))}</div>`;
+  if (!v) return pb.innerHTML = `<div class="note bad">We couldn't find that bill. Please text Matt on ${MATT}.</div>`;
+  const amt = money(v.amount_cents / 100);
+  if (v.status === 'paid') return pb.innerHTML = `<h2>Paid — thank you${v.first_name ? ', ' + esc(v.first_name) : ''}</h2><p>${esc(v.description)}: <b>${amt}</b></p>
+    <p class="muted">Nothing more to do.</p><a class="btn ghost" href="./" style="display:block;text-align:center;text-decoration:none">Open the booking app</a>`;
+  if (v.status === 'cancelled') return pb.innerHTML = `<h2>Nothing to pay</h2><p class="muted">This bill has been cancelled or was paid in person.</p>`;
+  pb.innerHTML = `<p class="muted">${v.first_name ? 'Hi ' + esc(v.first_name) + ', your bill:' : 'Your bill:'}</p><h2>${esc(v.description)}</h2>
+    <p style="font-size:1.7rem;margin:6px 0"><b>${amt}</b> <span class="muted" style="font-size:.9rem">incl. GST</span></p>
+    ${done ? '<div class="note">We have not seen the payment yet. If you just paid, wait a minute and reload this page before trying again.</div>' : ''}
+    <button class="btn brand" id="payGo">Pay by card</button>
+    <p class="muted" style="margin-top:10px">You pay on Stripe's secure page. We never see your card details. Or pay by EFTPOS or cash at your next visit.</p>`;
+  $('payGo').onclick = async () => {
+    $('payGo').disabled = true; $('payGo').textContent = 'Opening secure payment…';
+    const r = await db.rpc('bill_checkout', { p_token: token });
+    if (r.error) { $('payGo').disabled = false; $('payGo').textContent = 'Pay by card'; return toast(errMsg(r.error), true); }
+    if (r.data?.url) location.href = r.data.url; else renderPay(token);
+  };
+}
 async function start() {
+  const payTok = new URLSearchParams(location.search).get('pay');
+  if (payTok) return renderPay(payTok);
   const authErr = urlAuthError();
   if (authErr) return renderLogin(authErr);
   try {
@@ -734,6 +766,9 @@ function viewHome() {
   const today = nzToday(), e = eng(), d = customerDates(e, today), sv = live('service'), rm = live('removal'), m = monthlyOn(today), w = serviceWindow(e, today);
   const toApply = d.exitEligible ? Math.round((parseDate(d.exitEligible) - parseDate(today)) / 86400000) : null;
   $('view').innerHTML = `<h1>Hi ${esc(S.me.first_name || 'there')}</h1>
+    ${(S.me.bills || []).map(x => `<div class="card"><h2>Bill to pay: ${money(x.amount_cents / 100)}</h2><p>${esc(x.description)}</p>
+      <a class="btn brand" href="?pay=${encodeURIComponent(x.token)}" style="display:block;text-align:center;text-decoration:none">Pay online by card</a>
+      <p class="muted" style="margin-top:8px">Or pay by EFTPOS or cash at your next visit.</p></div>`).join('')}
     ${sv ? bookingCard(sv) : `<div class="card"><h2>No service booked</h2>${w ? `<p>Your next service is due around <b>${shortDate(w.due)}</b>.</p>` : ''}<button class="btn" id="goBook">Book a service</button></div>`}
     ${live('service', true) ? bookingCard(live('service', true)) : ''}
     ${rm ? bookingCard(rm) : ''}
@@ -810,7 +845,8 @@ function viewMore() {
       <p>${early ? `Your apply date is <b>${yDate(d.exitEligible)}</b>. Before then the interlock can only come out as a <b>temporary removal</b>, and you need approval from NZTA first.`
                  : 'You need your <b>zero alcohol licence</b> before the interlock can come out. Take a photo of it here.'}</p>
       <p class="muted">Removals are done after servicing, so the time is approximate until Matt approves it. It is locked in on the morning.</p>
-      <div id="rrows">${S.rAvail.map((r, i) => { const s = removalOn(r.session_date);
+      <div class="chips"><button class="chip" aria-pressed="${S.loc==='all'}" data-rloc="all">All</button>${[...new Set(S.rAvail.map(r => r.location_id))].map(l => `<button class="chip" aria-pressed="${S.loc===l}" data-rloc="${l}">${esc(LOC(l).name)}</button>`).join('')}</div>
+      <div id="rrows">${S.rAvail.map((r, i) => { if (S.loc !== 'all' && r.location_id !== S.loc) return ''; const s = removalOn(r.session_date);
         return `<div class="slot"><span><b>${shortDate(r.session_date)} · <span class="t">about ${fmtTime(r.offered_min)}</span></b><span class="muted">${esc(LOC(r.location_id).name)}${s ? ' · ' + money(s.price) : ''}</span></span>
         <button class="btn sm" data-rpick="${i}">Choose</button></div>`; }).join('') || `<p>No removal spots in the next 3 weeks. Text Matt on ${MATT}.</p>`}</div></div><div id="rconf"></div>`}
     <h1>Changeover</h1>
@@ -825,6 +861,7 @@ function viewMore() {
         <div id="chErr" class="note bad" hidden></div><button class="btn brand">Send request</button></form></div>`}`;
   wireCancel();
   document.querySelectorAll('[data-rpick]').forEach(b => b.onclick = () => confirmRemoval(S.rAvail[+b.dataset.rpick]));
+  document.querySelectorAll('[data-rloc]').forEach(b => b.onclick = () => { S.loc = b.dataset.rloc; viewMore(); });
   if ($('chF')) $('chF').onsubmit = async ev => {
     ev.preventDefault();
     const v = { rego: $('vRego').value, year: $('vYear').value, make: $('vMake').value, model: $('vModel').value, startType: $('vStart').value, fuel: $('vFuel').value };
@@ -899,7 +936,7 @@ function viewMe() {
       <p class="muted">If you applied and NZTA declined it, they gave you a new date. Enter it here so your bookings line up with it.</p>
       <form id="adF"><label class="f" for="ad">New date from NZTA</label><input id="ad" type="date" value="${esc(S.me.apply_date || '')}"><div id="adErr" class="note bad" hidden></div><button class="btn brand">Save date</button></form></div>
     <div class="card"><h2>Keep this handy</h2><p class="muted">In your browser menu choose <b>Add to Home screen</b> to open this like an app.</p><button class="btn ghost" id="out">Sign out</button><p class="muted" style="text-align:center"><a href="../privacy/">Privacy policy</a></p></div>
-    <p class="muted" style="text-align:center;font-size:.75rem">build 2026-11-16 08:30 UTC</p>`;
+    <p class="muted" style="text-align:center;font-size:.75rem">build 2026-11-16 09:03 UTC</p>`;
   $('out').onclick = signOut;
   if ($('prF')) $('prF').onsubmit = async ev => {
     ev.preventDefault();
@@ -919,7 +956,7 @@ function viewMe() {
   };
 }
 
-db.auth.onAuthStateChange((ev) => { if (ev === 'SIGNED_IN' && !S.me && !S.starting) { S.starting = true; setTimeout(() => start().finally(() => S.starting = false), 0); } });
+db.auth.onAuthStateChange((ev) => { if (ev === 'SIGNED_IN' && !S.me && !S.starting && !new URLSearchParams(location.search).get('pay')) { S.starting = true; setTimeout(() => start().finally(() => S.starting = false), 0); } });
 start();
 </script>
 </body>
