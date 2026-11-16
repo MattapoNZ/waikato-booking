@@ -642,7 +642,7 @@ function renderLogin(msg) {
     <label class="label" for="pw">Password</label><input id="pw" type="password" autocomplete="current-password" required>
     <button class="btn brand" id="loginBtn">Log in</button>
     <div id="loginMsg" class="alert" hidden></div>
-    <div class="empty" style="font-size:.75rem;margin-top:10px">build 2026-11-16 18:21 UTC</div></form>`;
+    <div class="empty" style="font-size:.75rem;margin-top:10px">build 2026-11-16 20:19 UTC</div></form>`;
   const btn = $('loginBtn'), box = $('loginMsg');
   const fail = m => { btn.disabled = false; btn.textContent = 'Log in'; box.textContent = m; box.hidden = false; };
   $('loginForm').onsubmit = async e => {
@@ -1196,7 +1196,8 @@ function editCustomer(c, target = 'cside', after = renderCustomers) {
       <label style="flex-direction:row;align-items:center;gap:6px"><input type="checkbox" id="f_sub" ${c.subsidised?'checked':''}> Subsidised</label>
       <label style="flex-direction:row;align-items:center;gap:6px"><input type="checkbox" id="f_tp" ${c.theft_protection?'checked':''}> Theft protection</label>
       <label>Subsidy start (date on the NZTA letter, if not the install date)<input id="f_ss" type="date" value="${esc(c.subsidy_start)}"></label>
-      <label>NZTA apply date (if changed)<input id="f_ad" type="date" value="${esc(c.apply_date)}"></label>
+      <label>Date of last violation (NZTA decline email)<input id="f_lv" type="date" value="${esc(c.last_violation_date)}"></label>
+      <label>NZTA apply date (fills in 6 months after the violation)<input id="f_ad" type="date" value="${esc(c.apply_date)}"></label>
       <label class="full">Service rollover date (if different from install, e.g. second device fitted)<input id="f_ro" type="date" value="${esc(c.rollover_date)}"></label>
       <label class="full">Alert (shows in red at checkout)<input id="f_al" value="${esc(c.alerts)}"></label>
       <label class="full">Notes<textarea id="f_no" rows="3">${esc(c.notes)}</textarea></label>
@@ -1222,11 +1223,13 @@ function editCustomer(c, target = 'cside', after = renderCustomers) {
     }, 250); };
     $('jq').focus();
   };
+  $('f_lv').onchange = () => { const x = $('f_lv').value; if (!x) return; const six = addMonths(x, 6), inst = $('f_inst').value, std = inst ? addMonths(inst, 12) : six; $('f_ad').value = six > std ? six : std; };
   $('cf').onsubmit = async e => {
     e.preventDefault();
     const v = id => $(id).value.trim() || null;
     const upd = { first_name: v('f_first'), last_name: v('f_last'), mobile: v('f_mob'), email: v('f_em'), install_date: v('f_inst'), vehicle: v('f_veh'),
       subsidised: $('f_sub').checked, theft_protection: $('f_tp').checked, subsidy_start: v('f_ss'), rollover_date: v('f_ro'), alerts: v('f_al'), notes: v('f_no') };
+    const lv = v('f_lv'); if (lv !== (c.last_violation_date || null)) upd.last_violation_date = lv;
     const ad = v('f_ad'); if (ad !== c.apply_date) Object.assign(upd, { apply_date: ad, apply_date_set_by: ad ? 'staff' : null, apply_date_set_on: ad ? new Date().toISOString() : null });
     const { error } = await db.from('customers').update(upd).eq('id', c.id);
     if (error) return toast(/duplicate|unique/i.test(errMsg(error)) ? 'Another customer already has that mobile. Use "Join with existing customer" instead.' : errMsg(error), true);
