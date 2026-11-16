@@ -602,7 +602,7 @@ function renderLogin(msg) {
     <label class="label" for="pw">Password</label><input id="pw" type="password" autocomplete="current-password" required>
     <button class="btn brand" id="loginBtn">Log in</button>
     <div id="loginMsg" class="alert" hidden></div>
-    <div class="empty" style="font-size:.75rem;margin-top:10px">build 2026-11-16 07:24 UTC</div></form>`;
+    <div class="empty" style="font-size:.75rem;margin-top:10px">build 2026-11-16 07:49 UTC</div></form>`;
   const btn = $('loginBtn'), box = $('loginMsg');
   const fail = m => { btn.disabled = false; btn.textContent = 'Log in'; box.textContent = m; box.hidden = false; };
   $('loginForm').onsubmit = async e => {
@@ -653,7 +653,7 @@ function render() {
       <nav class="tabs"><button class="chip" aria-pressed="${S.view==='run'}" data-v="run">Sessions</button>
         <button class="chip" aria-pressed="${S.view==='cust'}" data-v="cust">Customers</button>
         <button class="chip" aria-pressed="${S.view==='sched'}" data-v="sched">Schedule</button>
-        <button class="chip" aria-pressed="${S.view==='texts'}" data-v="texts">Texts</button>
+        <button class="chip" aria-pressed="${S.view==='texts'}" data-v="texts">Messages</button>
         <button class="chip" id="refresh">Refresh</button><button class="chip" id="logout">Log out</button></nav></header>
     <div id="body"></div>`;
   document.querySelectorAll('[data-v]').forEach(b => b.onclick = () => { S.view = b.dataset.v; render(); });
@@ -797,23 +797,24 @@ function priceReqBox(c) {
   return `<div class="alert" style="background:var(--warn-soft);color:var(--ink)"><b>Price request:</b> ${esc(asked)}${r.note ? `<br>“${esc(r.note)}”` : ''}
     ${r.wants_subsidy && !c.install_date ? '<br><b>No install date on file</b> — add it or the subsidy price will not apply.' : ''}
     <div class="grid2" style="margin-top:8px"><button class="btn brand" data-pr="yes" data-prid="${r.id}">Approve</button><button class="btn ghost" data-pr="no" data-prid="${r.id}">Decline</button></div>
-    <div class="empty">Approving updates their record and bookings, and texts them.</div></div>`;
+    <div class="empty">Approving updates their record and bookings, and emails them (or texts if no email).</div></div>`;
 }
 function wirePriceReq(el, after) {
   el.querySelectorAll('[data-pr]').forEach(x => x.onclick = async () => {
     el.querySelectorAll('[data-pr]').forEach(y => y.disabled = true);
     const { error } = await db.rpc('decide_price_request', { p_id: x.dataset.prid, p_approve: x.dataset.pr === 'yes' });
-    if (error) { toast(errMsg(error), true); } else toast(x.dataset.pr === 'yes' ? 'Approved — price updated and customer texted' : 'Declined — customer texted');
+    if (error) { toast(errMsg(error), true); } else toast(x.dataset.pr === 'yes' ? 'Approved — price updated and customer told' : 'Declined — customer told');
     await loadPriceReqs(); after();
   });
 }
 function renderMessage(locId) {
-  const el = $('side'), who = [...new Map(S.bookings.filter(b => b.location_id === locId && ['pencilled','confirmed','arrived'].includes(b.status) && b.customer?.mobile).map(b => [b.customer_id, b.customer])).values()];
+  const el = $('side'), who = [...new Map(S.bookings.filter(b => b.location_id === locId && ['pencilled','confirmed','arrived'].includes(b.status) && (b.customer?.mobile || b.customer?.email)).map(b => [b.customer_id, b.customer])).values()];
   el.innerHTML = `<div class="label">${esc(LOC(locId))} · ${longDate(S.date)}</div><h2>Text this session</h2>
-    <p class="empty">Goes to ${who.length} customer${who.length === 1 ? '' : 's'} booked in this session${who.length ? ': ' + esc(who.map(c => c.first_name || fullName(c)).join(', ')) : ''}.</p>
+    <p class="empty">Goes to ${who.length} customer${who.length === 1 ? '' : 's'} booked in this session${who.length ? ': ' + esc(who.map(c => c.first_name || fullName(c)).join(', ')) : ''}. Sent by email; anyone without an email address gets a text.</p>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0">${['Running about 15 minutes late today, sorry.', 'Today\'s session is cancelled, sorry. Please rebook in the app.', 'Change of location today: '].map(t => `<button class="chip" data-tpl="${esc(t)}">${esc(t.slice(0, 26))}…</button>`).join('')}</div>
     <textarea id="msgT" rows="4" style="width:100%" maxlength="300" placeholder="Your message"></textarea>
-    <div class="empty">“Waikato Interlocks. Reply STOP to OptOut (20c)” is added to the end.</div>
+    <label style="display:flex;align-items:center;gap:8px;margin-top:8px"><input type="checkbox" id="msgAll" ${S.date === nzToday() ? 'checked' : ''}> Text everyone as well (urgent, costs a text each)</label>
+    <div class="empty">Texts get “Waikato Interlocks. Reply STOP to OptOut (20c)” added to the end.</div>
     <div class="grid2" style="margin-top:8px"><button class="btn brand" id="msgGo" ${who.length ? '' : 'disabled'}>Send to ${who.length}</button><button class="btn ghost" id="msgNo">Back</button></div><div id="msgSure"></div>`;
   el.querySelectorAll('[data-tpl]').forEach(b => b.onclick = () => { $('msgT').value = b.dataset.tpl; $('msgT').focus(); });
   $('msgNo').onclick = () => renderSide();
@@ -823,19 +824,26 @@ function renderMessage(locId) {
     $('msgCancel').onclick = () => { $('msgSure').innerHTML = ''; };
     $('msgYes').onclick = async () => {
       $('msgYes').disabled = true;
-      const { data, error } = await db.rpc('message_session', { p_location: locId, p_date: S.date, p_message: m });
+      const { data, error } = await db.rpc('message_session', { p_location: locId, p_date: S.date, p_message: m, p_text_all: $('msgAll').checked });
       if (error) { $('msgYes').disabled = false; return toast(errMsg(error), true); }
-      toast('Sent to ' + data + ' customer' + (data === 1 ? '' : 's')); renderSide();
+      toast('Sent: ' + data.emails + ' email' + (data.emails === 1 ? '' : 's') + ', ' + data.texts + ' text' + (data.texts === 1 ? '' : 's')); renderSide();
     };
   };
 }
 async function renderTexts() {
-  $('body').innerHTML = '<div class="panel"><h2>Texts sent</h2><div class="list" id="tlist"><div class="empty">Loading…</div></div></div>';
-  const { data, error } = await db.from('sms_log').select('*, customer:customers(first_name,last_name)').order('id', { ascending: false }).limit(60);
-  if (error) return toast(errMsg(error), true);
-  const KIND = { login: 'Login code', session: 'Session message', reminder: 'Reminder', test: 'Test', notice: 'Notice' };
-  $('tlist').innerHTML = data.map(t => `<div class="item"><span><b>${esc(t.customer ? fullName(t.customer) : t.to_phone)}</b> <span class="empty">${KIND[t.kind] || t.kind}</span><br><span class="empty">${esc(t.body)}</span></span>
-    <span class="empty" style="text-align:right;white-space:nowrap">${new Date(t.created_at).toLocaleString('en-NZ', { timeZone: 'Pacific/Auckland', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}</span></div>`).join('') || '<div class="empty">No texts sent yet</div>';
+  $('body').innerHTML = `<div class="panel"><h2>Messages sent</h2>
+    <form id="teF" style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0"><input id="teTo" type="email" placeholder="Send a test email to…" style="flex:1;min-width:200px" required><button class="btn ghost">Send test email</button></form>
+    <div class="list" id="tlist"><div class="empty">Loading…</div></div></div>`;
+  $('teF').onsubmit = async e => { e.preventDefault(); const { error } = await db.rpc('send_test_email', { p_to: $('teTo').value.trim() }); if (error) return toast(errMsg(error), true); toast('Test email sent'); renderTexts(); };
+  const [sm, em] = await Promise.all([
+    db.from('sms_log').select('*, customer:customers(first_name,last_name)').order('id', { ascending: false }).limit(60),
+    db.from('email_log').select('*, customer:customers(first_name,last_name)').order('id', { ascending: false }).limit(60)]);
+  if (sm.error || em.error) return toast(errMsg(sm.error || em.error), true);
+  const KIND = { login: 'Login code', session: 'Session message', reminder: 'Reminder', test: 'Test', notice: 'Notice', booking: 'Booking', removal: 'Removal', price: 'Price decision' };
+  const all = [...sm.data.map(t => ({ ...t, via: 'Text', to: t.to_phone, text: t.body })), ...em.data.map(t => ({ ...t, via: 'Email', to: t.to_email, text: t.subject + ' — ' + t.body }))]
+    .sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 80);
+  $('tlist').innerHTML = all.map(t => `<div class="item"><span><b>${esc(t.customer ? fullName(t.customer) : t.to)}</b> <span class="pill p-confirmed">${t.via}</span> <span class="empty">${KIND[t.kind] || esc(t.kind)}</span><br><span class="empty">${esc(t.text.slice(0, 220))}</span></span>
+    <span class="empty" style="text-align:right;white-space:nowrap">${new Date(t.created_at).toLocaleString('en-NZ', { timeZone: 'Pacific/Auckland', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}</span></div>`).join('') || '<div class="empty">Nothing sent yet</div>';
 }
 function showSide() { if (matchMedia('(max-width:960px)').matches) setTimeout(() => $('side')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); }
 async function undoPayment(b) {
