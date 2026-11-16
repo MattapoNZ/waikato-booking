@@ -558,7 +558,7 @@ async function renderLogin(msg) {
     ${ext.google ? '<button class="btn ghost" data-o="google">Continue with Google</button>' : ''}
     ${ext.facebook ? '<button class="btn ghost" data-o="facebook">Continue with Facebook</button>' : ''}
     <div id="lgMsg" class="note bad" hidden></div>
-    <p class="muted" style="margin-top:12px">Use the mobile number or email address Matt has on file for you.</p>`
+    <p class="muted" style="margin-top:12px">Already a customer? Use the mobile number or email Matt has for you. New here? Sign in and we'll set you up.</p>`
     : `<h2>Online booking opens soon</h2><p>To book now, text Matt on <a href="sms:${MATT.replace(/ /g,'')}">${MATT}</a>.</p>`);
   const fail = m => { const b = $('lgMsg'); b.textContent = m; b.hidden = false; };
   document.querySelectorAll('[data-o]').forEach(b => b.onclick = async () => {
@@ -588,13 +588,41 @@ async function renderLogin(msg) {
   };
 }
 
-function renderNoMatch() {
-  const who = S.user.phone ? '+' + String(S.user.phone).replace(/^\+/, '') : S.user.email;
-  $('app').innerHTML = `<h1>Waikato Interlocks</h1><div class="card"><h2>We couldn't find your details</h2>
-    <p>You signed in as <b>${esc(who)}</b>, but that doesn't match the mobile number or email Matt has for you.</p>
-    <p>Text Matt on <a href="sms:${MATT.replace(/ /g,'')}">${MATT}</a> with your name and <b>${esc(who)}</b>. Once he's added it, tap Try again.</p>
-    <button class="btn brand" id="again">Try again</button><button class="btn ghost" id="out">Sign out</button></div>`;
-  $('again').onclick = start; $('out').onclick = signOut;
+function renderNoMatch(msg) {
+  const byPhone = !!S.user.phone, who = byPhone ? '+' + String(S.user.phone).replace(/^\+/, '') : S.user.email;
+  const nm = (S.user.user_metadata && (S.user.user_metadata.full_name || S.user.user_metadata.name) || '').trim().split(/\s+/);
+  $('app').innerHTML = `<h1>Waikato Interlocks</h1><div class="card"><h2>Set up your account</h2>
+    <p class="muted">You're signed in as <b>${esc(who)}</b>. We don't have that on file yet, so tell us who you are. If Matt already has your details we'll join them up.</p>
+    ${msg ? `<div class="note bad">${esc(msg)}</div>` : ''}
+    <form id="suF">
+      <label class="f" for="suFn">First name</label><input id="suFn" autocomplete="given-name" required value="${esc(nm[0] || '')}">
+      <label class="f" for="suLn">Last name</label><input id="suLn" autocomplete="family-name" required value="${esc(nm.slice(1).join(' '))}">
+      ${byPhone ? `<label class="f" for="suEm">Email (optional)</label><input id="suEm" type="email" autocomplete="email">`
+                : `<label class="f" for="suMb">Mobile number</label><input id="suMb" type="tel" inputmode="tel" autocomplete="tel" placeholder="021 123 4567" required>`}
+      <label class="f" for="suVe">Vehicle rego (optional)</label><input id="suVe" autocapitalize="characters" maxlength="8">
+      <label class="f" for="suLo">Where you'd usually come</label><select id="suLo"><option value="">Not sure yet</option>${locations.map(l => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join('')}</select>
+      <label class="f" for="suIn">Interlock install date, if you know it (optional)</label><input id="suIn" type="date" max="${nzToday()}">
+      <div id="suMsg" class="note bad" hidden></div>
+      <button class="btn brand" id="suGo">Create my account</button>
+    </form>
+    <button class="btn ghost" id="out">Sign out</button></div>`;
+  $('out').onclick = signOut;
+  const fail = m => { const b = $('suMsg'); b.textContent = m; b.hidden = false; $('suGo').disabled = false; };
+  $('suF').onsubmit = async e => {
+    e.preventDefault(); $('suMsg').hidden = true; $('suGo').disabled = true;
+    const mobile = byPhone ? '' : $('suMb').value.trim();
+    if (!byPhone && !nzPhone(mobile)) return fail('Enter your NZ mobile number, like 021 123 4567');
+    try {
+      const { data, error } = await withTimeout(db.rpc('create_my_account', { p: { firstName: $('suFn').value, lastName: $('suLn').value, mobile,
+        email: byPhone ? $('suEm').value : '', vehicle: $('suVe').value, homeLocation: $('suLo').value, installDate: $('suIn').value } }), 20000, 'Creating your account');
+      if (error) throw error;
+      if (data.status === 'have_mobile') {
+        await db.auth.signOut(); S.me = null;
+        return renderLogin('Good news: we already have ' + mobile + ' on file. Sign in with a text code to that number and your bookings will be there.');
+      }
+      await load(); render(); toast(data.status === 'linked' ? 'Found your details' : 'Account created. Matt will check your details.');
+    } catch (er) { fail(errMsg(er)); }
+  };
 }
 async function signOut() { await db.auth.signOut(); S.me = null; renderLogin(); }
 
@@ -829,7 +857,7 @@ function viewMe() {
       <p class="muted">If you applied and NZTA declined it, they gave you a new date. Enter it here so your bookings line up with it.</p>
       <form id="adF"><label class="f" for="ad">New date from NZTA</label><input id="ad" type="date" value="${esc(S.me.apply_date || '')}"><div id="adErr" class="note bad" hidden></div><button class="btn brand">Save date</button></form></div>
     <div class="card"><h2>Keep this handy</h2><p class="muted">In your browser menu choose <b>Add to Home screen</b> to open this like an app.</p><button class="btn ghost" id="out">Sign out</button><p class="muted" style="text-align:center"><a href="../privacy/">Privacy policy</a></p></div>
-    <p class="muted" style="text-align:center;font-size:.75rem">build 2026-11-10 09:23 UTC</p>`;
+    <p class="muted" style="text-align:center;font-size:.75rem">build 2026-11-16 07:03 UTC</p>`;
   $('out').onclick = signOut;
   $('adF').onsubmit = async ev => {
     ev.preventDefault();
