@@ -630,7 +630,7 @@ async function start() {
 async function renderLogin(msg) {
   $('app').innerHTML = `<h1>Waikato Interlocks</h1><p class="muted">Book your interlock service, see your dates and what you pay.</p>
     <div class="card" id="lg">${msg ? `<div class="note bad">${esc(msg)}</div>` : ''}<p class="muted">Checking sign-in options…</p></div>
-    <p class="muted" style="text-align:center;margin-top:16px"><b>New here and need an interlock fitted?</b> <a href="?new">Send us your details</a><br>Anything urgent: text or call Matt on <a href="tel:${MATT.replace(/ /g,'')}">${MATT}</a><br>${unlockNote()}<br><a href="../privacy/">Privacy policy</a></p>`;
+    <p class="muted" style="text-align:center;margin-top:16px"><b>New here and need an interlock fitted?</b> <a href="?new">Send us your details</a><br>Anything urgent: text or call Matt on <a href="tel:${MATT.replace(/ /g,'')}">${MATT}</a><br>${unlockNote()}<br><a href="../privacy/">Privacy policy</a> · <a href="../?staff">Staff</a></p>`;
   let ext = {};
   try { ext = (await (await fetch(SUPABASE_URL + '/auth/v1/settings', { headers: { apikey: SUPABASE_KEY } })).json()).external || {}; } catch (e) {}
   if (window.__mockSupabase) ext = window.__mockSupabase.providers || ext;
@@ -974,7 +974,7 @@ function viewMe() {
       <p class="muted">If you applied and NZTA declined it, they gave you a new date. Enter it here so your bookings line up with it.</p>
       <form id="adF"><label class="f" for="ad">New date from NZTA</label><input id="ad" type="date" value="${esc(S.me.apply_date || '')}"><div id="adErr" class="note bad" hidden></div><button class="btn brand">Save date</button></form></div>
     <div class="card"><h2>Keep this handy</h2><p class="muted">In your browser menu choose <b>Add to Home screen</b> to open this like an app.</p><button class="btn ghost" id="out">Sign out</button><p class="muted" style="text-align:center"><a href="../privacy/">Privacy policy</a></p></div>
-    <p class="muted" style="text-align:center;font-size:.75rem">build 2026-11-16 09:24 UTC</p>`;
+    <p class="muted" style="text-align:center;font-size:.75rem">build 2026-11-16 09:36 UTC</p>`;
   $('out').onclick = signOut;
   if ($('prF')) $('prF').onsubmit = async ev => {
     ev.preventDefault();
