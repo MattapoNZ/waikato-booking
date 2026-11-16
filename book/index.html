@@ -787,7 +787,9 @@ const googleCalUrl = ev => 'https://calendar.google.com/calendar/render?action=T
 function bookingCard(b) {
   const l = LOC(b.location_id), rem = b.kind === 'removal', fl = rem && b.time_locked === false;
   const est = fl ? (S.rTimes.find(x => x.booking_id === b.id) || {}).est_min ?? b.start_min : b.start_min;
-  const state = !rem ? '<span class="pill ok">Confirmed</span>'
+  const req = !rem && b.status === 'pencilled';
+  const state = req ? '<span class="pill warn">Request: waiting for Matt to confirm</span>'
+    : !rem ? '<span class="pill ok">Confirmed</span>'
     : fl ? (b.approved_at ? '<span class="pill">Approved — time confirmed on the morning</span>' : '<span class="pill warn">Waiting for Matt to approve</span>')
     : '<span class="pill ok">Confirmed</span>';
   return `<div class="card"><div class="muted">${rem ? (b.details?.temporary ? 'Temporary removal' : 'Removal') : esc(SVC(b.service_id).name)}</div>
@@ -795,8 +797,9 @@ function bookingCard(b) {
     <div class="big t" style="color:var(--brand)">${fl ? 'about ' : ''}${fmtTime(est)}</div>
     <p><b>${esc(l.name)}</b><br>${mapLink(l)}</p><p>${state} &nbsp; <b>${money(b.price_cents / 100)}</b> ${b.price_cents ? '<span class="muted">to pay on the day</span>' : ''}</p>
     ${fl ? '<p class="muted">This time can move later if services are booked ahead of you. It is locked in on the morning.</p>' : ''}
+    ${req ? '<div class="note"><b>Not confirmed yet.</b> Please do not come until Matt confirms it. We will email you either way.</div>' : ''}
     <div class="chips"><button class="chip" data-ics="${b.id}">Add to calendar</button><a class="chip" style="text-decoration:none" target="_blank" rel="noopener" href="${esc(googleCalUrl(calEvent(b, est)))}">Google Calendar</a></div>
-    <button class="btn ghost" data-cancel="${b.id}">Cancel ${rem ? 'this request' : 'this booking'}</button></div>`;
+    <button class="btn ghost" data-cancel="${b.id}">${req ? 'Withdraw this request' : 'Cancel ' + (rem ? 'this request' : 'this booking')}</button></div>`;
 }
 function wireCancel() {
   document.querySelectorAll('[data-ics]').forEach(x => x.onclick = () => {
@@ -887,8 +890,8 @@ function viewBook() {
       <p class="muted">${WHY[S.svc] || 'Only book a reset by itself if you are not due a service.'}</p></div>
     <div class="card"><h2>Where and when</h2><div class="chips"><button class="chip" aria-pressed="${S.loc==='all'}" data-loc="all">All</button>${locs.map(l => `<button class="chip" aria-pressed="${S.loc===l}" data-loc="${l}">${esc(LOC(l).name)}</button>`).join('')}</div>
       <p class="muted">Each day has one time: the next free spot.</p><div id="rows">${rows.map((r, i) => { const s = svcFor(r.session_date);
-        return `<div class="slot"><span><b>${shortDate(r.session_date)} · <span class="t">${fmtTime(r.offered_min)}</span></b><span class="muted">${esc(LOC(r.location_id).name)}${s ? ' · ' + money(s.price) : ''}${(r.notes||[]).length ? ' · ' + esc(r.notes.join('; ')) : ''}</span></span>
-          <button class="btn sm" data-pick="${i}">Book</button></div>`; }).join('') || `<p>No times free in the next 3 weeks. Text Matt on ${MATT}.</p>`}</div></div><div id="conf"></div>`;
+        return `<div class="slot"><span><b>${shortDate(r.session_date)} · <span class="t">${fmtTime(r.offered_min)}</span></b><span class="muted">${esc(LOC(r.location_id).name)}${s ? ' · ' + money(s.price) : ''}${(r.notes||[]).length ? ' · ' + esc(r.notes.join('; ')) : ''}</span>${r.request ? '<span class="muted" style="color:var(--warn);display:block">Online bookings have closed for this session. You can request it.</span>' : ''}</span>
+          <button class="btn sm${r.request ? ' ghost' : ''}" data-pick="${i}">${r.request ? 'Request' : 'Book'}</button></div>`; }).join('') || `<p>No times free in the next 3 weeks. Text Matt on ${MATT}.</p>`}</div></div><div id="conf"></div>`;
   document.querySelectorAll('[data-svc]').forEach(b => b.onclick = () => { S.svc = b.dataset.svc; viewBook(); });
   document.querySelectorAll('[data-loc]').forEach(b => b.onclick = () => { S.loc = b.dataset.loc; viewBook(); });
   document.querySelectorAll('[data-pick]').forEach(b => b.onclick = () => confirmBook(rows[+b.dataset.pick], svcFor));
@@ -902,6 +905,23 @@ function confirmBook(r, svcFor) {
   const w = s.id === 'data' ? serviceWindow(eng(), r.session_date, servicedDates(S.bookings, services)) : null, inWin = w && r.session_date >= w.opens && r.session_date <= w.closes;
   const dataNote = s.id !== 'data' ? '' : `<div class="note"><b>Are you sure this is what you want?</b> This is a data reading only. It is not your monthly service, and you still need your service when it is due.
     ${inWin && !live('service') ? `<br><b>Your monthly service is due around ${shortDate(w.due)}</b>, and a full service includes the data reading. <button class="btn brand" id="fullSvc">Book my monthly service instead</button>` : ''}</div>`;
+  if (r.request) {
+    $('conf').innerHTML = `<div class="card" id="confCard" style="border:2px solid var(--warn)"><h2>Bookings for this session have closed</h2>
+      <p>Online bookings close 2 hours before. Did you want to request this time instead?</p>
+      <div class="big">${longDate(r.session_date)}</div><div class="big t" style="color:var(--brand)">${fmtTime(r.offered_min)}</div>
+      <p><b>${esc(l.name)}</b><br>${mapLink(l)}</p><p>${esc(s.name)} · <b>${money(s.price)}</b> <span class="muted">to pay on the day</span></p>
+      <div class="note"><b>A request is not a booking.</b> Matt gets it straight away. Please do not come until he confirms it. We will email you either way.</div>
+      <button class="btn brand" id="yes">Send request</button><button class="btn ghost" id="no">Back</button></div>`;
+    $('confCard').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    $('no').onclick = () => { $('conf').innerHTML = ''; };
+    $('yes').onclick = async () => {
+      $('yes').disabled = true; $('yes').textContent = 'Sending…';
+      const { data, error } = await db.rpc('book_next_slot', { p_location: r.location_id, p_date: r.session_date, p_service: s.id, p_expected_min: r.offered_min, p_details: { lateRequest: true } });
+      if (error) { await reload(); return toast(errMsg(error), true); }
+      S.tab = 'home'; reload(data && data.status === 'confirmed' ? 'Booked. See you there.' : 'Request sent. It is not confirmed until Matt confirms it.');
+    };
+    return;
+  }
   $('conf').innerHTML = `<div class="card" id="confCard"><h2>Confirm</h2><div class="big">${longDate(r.session_date)}</div><div class="big t" style="color:var(--brand)">${fmtTime(r.offered_min)}</div>
     <p><b>${esc(l.name)}</b><br>${mapLink(l)}</p><p>${esc(s.name)} · <b>${money(s.price)}</b> <span class="muted">to pay on the day</span></p>
     ${dataNote}${adv ? `<div class="note"><b>Heads up.</b> ${esc(adv.message.replace(adv.applyDate, yDate(adv.applyDate)))}
@@ -1021,7 +1041,7 @@ function viewMe() {
       <details style="margin-top:10px"><summary class="muted">NZTA gave me an actual date to apply instead</summary>
       <form id="adF"><label class="f" for="ad">Date you can next apply</label><input id="ad" type="date" value="${esc(S.me.apply_date || '')}"><div id="adErr" class="note bad" hidden></div><button class="btn">Save date</button></form></details></div>
     <div class="card"><h2>Keep this handy</h2><p class="muted">In your browser menu choose <b>Add to Home screen</b> to open this like an app.</p><button class="btn ghost" id="out">Sign out</button><p class="muted" style="text-align:center"><a href="../privacy/">Privacy policy</a></p></div>
-    <p class="muted" style="text-align:center;font-size:.75rem">build 2026-11-16 20:45 UTC</p>`;
+    <p class="muted" style="text-align:center;font-size:.75rem">build 2026-11-16 21:29 UTC</p>`;
   $('out').onclick = signOut;
   if ($('prF')) $('prF').onsubmit = async ev => {
     ev.preventDefault();
