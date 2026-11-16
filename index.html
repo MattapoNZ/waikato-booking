@@ -616,9 +616,14 @@ async function loadPriceReqs() {
 async function start() {
   try {
     const { data } = await withTimeout(db.auth.getSession(), 15000, 'Checking login');
-    if (!data.session) return renderLogin();
+    // The site's front door is shared with customers: anyone who is not staff goes to the booking app.
+    let wasStaff = false; try { wasStaff = localStorage.getItem('wi_staff') === '1'; } catch (e) {}
+    const wantStaff = wasStaff || /[?&]staff\b/.test(location.search) || location.protocol === 'file:' || matchMedia('(display-mode: standalone)').matches;
+    if (!data.session) return wantStaff ? renderLogin() : location.replace('book/');
     const { data: me, error } = await withTimeout(db.from('staff').select('name').limit(1), 15000, 'Staff check');
     if (error) return renderLogin('Staff check failed: ' + errMsg(error));
+    if ((!me || !me.length) && !wantStaff) return location.replace('book/');
+    if (me && me.length) { try { localStorage.setItem('wi_staff', '1'); } catch (e) {} }
     if (!me || !me.length) return renderLogin('Logged in, but this login is not set up as staff yet. Run the staff insert in Supabase, then log in again.');
     S.me = me[0].name;
     await withTimeout(loadSessions(), 20000, 'Loading sessions');
@@ -633,7 +638,7 @@ function renderLogin(msg) {
     <label class="label" for="pw">Password</label><input id="pw" type="password" autocomplete="current-password" required>
     <button class="btn brand" id="loginBtn">Log in</button>
     <div id="loginMsg" class="alert" hidden></div>
-    <div class="empty" style="font-size:.75rem;margin-top:10px">build 2026-11-16 09:20 UTC</div></form>`;
+    <div class="empty" style="font-size:.75rem;margin-top:10px">build 2026-11-16 09:36 UTC</div></form>`;
   const btn = $('loginBtn'), box = $('loginMsg');
   const fail = m => { btn.disabled = false; btn.textContent = 'Log in'; box.textContent = m; box.hidden = false; };
   $('loginForm').onsubmit = async e => {
@@ -1095,7 +1100,7 @@ async function renderCustomers() {
   let t; $('cq').oninput = () => { clearTimeout(t); t = setTimeout(load, 250); }; load();
 }
 // ---------- new customer enquiries (from the form link) ----------
-const ENQ_LINK = 'https://mattaponz.github.io/waikato-booking/book/?new';
+const ENQ_LINK = 'https://book.waikatointerlocks.co.nz/book/?new';
 const ENQ_ST = { new: 'New', contacted: 'Contacted', pencilled: 'Install pencilled in', installed: 'Installed', closed: 'Not going ahead' };
 const vehLine = v => [v.year, v.make, v.model, v.rego, v.start === 'push' ? '(push-button)' : v.start === 'key' ? '(key start)' : '', v.fuel].filter(Boolean).join(' ');
 async function loadEnquiries() {
