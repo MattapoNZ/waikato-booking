@@ -803,6 +803,27 @@ function wireCancel() {
   });
 }
 
+const EXIT_FORM = 'https://www.nzta.govt.nz/driver-licences/driving-offences-and-penalties/alcohol-sentencing/alcohol-interlock-programme/exit-aid/';
+const EXIT_DAYS = 2;   // NZTA wants the data reading no more than this many days before the application
+function exitCard(d, today, w) {
+  if (!d.exitEligible || today < d.exitEligible) return '';
+  const visits = S.bookings.filter(b => b.kind === 'service' && !['cancelled', 'no_show'].includes(b.status));
+  const back = addDays(today, -EXIT_DAYS), from = back > d.exitEligible ? back : d.exitEligible;
+  const done = visits.filter(b => b.session_date >= from && (b.session_date < today || (b.session_date === today && ['arrived', 'completed'].includes(b.status)))).pop();
+  if (done) return `<div class="card" style="border:2px solid var(--brand)"><h2>You can apply to exit now</h2>
+    <p>Your interlock data was read on <b>${shortDate(done.session_date)}</b>. Apply to NZTA by <b>${shortDate(addDays(done.session_date, EXIT_DAYS))}</b>, or you will need another reading.</p>
+    <a class="btn brand" href="${EXIT_FORM}" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none">Open the NZTA exit form</a>
+    <p class="muted" style="margin-top:8px">Once NZTA approves it, come back here and book your removal.</p></div>`;
+  const next = visits.find(b => b.session_date >= today);
+  if (next) return `<div class="card" style="border:2px solid var(--brand)"><h2>You are eligible to apply to exit</h2>
+    <p>You are booked for <b>${shortDate(next.session_date)}</b>. After that visit the link to the NZTA exit form shows here. You then have ${EXIT_DAYS} days to apply.</p></div>`;
+  const due = w && today >= w.opens;
+  return `<div class="card" style="border:2px solid var(--brand)"><h2>You are eligible to apply to exit</h2>
+    <p><b>Book an appointment first.</b> NZTA needs a reading of your interlock data taken no more than ${EXIT_DAYS} days before you apply. The link to the NZTA form shows here once you have had your visit.</p>
+    ${due ? '<p class="muted">Your monthly service is due, and it includes the data reading.</p><button class="btn brand" data-exit="service">Book my monthly service</button><button class="btn ghost" data-exit="data">Data reading only, $60</button>'
+          : '<p class="muted">Not due a service yet? A data reading is all you need.</p><button class="btn brand" data-exit="data">Book a data reading, $60</button><button class="btn ghost" data-exit="service">Book my monthly service instead</button>'}</div>`;
+}
+
 function viewHome() {
   const today = nzToday(), e = eng(), d = customerDates(e, today), sv = live('service'), rm = live('removal'), m = monthlyOn(today), w = serviceWindow(e, today);
   const toApply = d.exitEligible ? Math.round((parseDate(d.exitEligible) - parseDate(today)) / 86400000) : null;
@@ -810,6 +831,7 @@ function viewHome() {
     ${(S.me.bills || []).map(x => `<div class="card"><h2>Bill to pay: ${money(x.amount_cents / 100)}</h2><p>${esc(x.description)}</p>
       <a class="btn brand" href="?pay=${encodeURIComponent(x.token)}" style="display:block;text-align:center;text-decoration:none">Pay online by card</a>
       <p class="muted" style="margin-top:8px">Or pay by EFTPOS or cash at your next visit.</p></div>`).join('')}
+    ${exitCard(d, today, w)}
     ${sv ? bookingCard(sv) : `<div class="card"><h2>No service booked</h2>${w ? `<p>Your next service is due around <b>${shortDate(w.due)}</b>.</p>` : ''}<button class="btn" id="goBook">Book a service</button></div>`}
     ${live('service', true) ? bookingCard(live('service', true)) : ''}
     ${rm ? bookingCard(rm) : ''}
@@ -823,7 +845,8 @@ function viewHome() {
       <div class="fact"><div class="k">Subsidy</div><div class="v">${d.subsidyActive ? (d.subsidyEnds && !d.subsidyOverdue ? 'Until ' + yDate(d.subsidyEnds) : 'Active') : 'None'}</div></div>
       <div class="fact"><div class="k">Theft protection</div><div class="v">${S.me.theft_protection ? 'Yes' : 'No'}</div></div></div>
       ${toApply === null ? '' : toApply > 0 ? `<p class="muted">${toApply} day${toApply === 1 ? '' : 's'} until you can apply to NZTA to have it removed. You need a service on or after that date.</p>`
-        : '<p class="muted">You can now apply to NZTA for removal, once you have had a service on or after your apply date.</p>'}</div>`;
+        : '<p class="muted">You can now apply to NZTA to exit. See the top of this page.</p>'}</div>`;
+  document.querySelectorAll('[data-exit]').forEach(b => b.onclick = () => { S.svc = b.dataset.exit; S.tab = 'book'; render(); });
   if ($('goBook')) $('goBook').onclick = () => { S.tab = 'book'; render(); };
   $('goPrice').onclick = () => { S.tab = 'me'; render(); setTimeout(() => $('prCard')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); };
   wireCancel();
@@ -973,11 +996,13 @@ function viewMe() {
         ${S.me.theft_protection === false ? '' : '<label class="chk"><input type="checkbox" id="prTp"> I don\'t have theft protection</label>'}
         <label class="f" for="prNote">Anything Matt should know (optional)</label><input id="prNote" maxlength="300">
         <div id="prErr" class="note bad" hidden></div><button class="btn brand">Send request</button></form>`}</div>
-    <div class="card"><h2>Apply date</h2><p>Currently <b>${yDate(d.exitEligible)}</b>${S.me.apply_date ? ' (the date NZTA gave you)' : ' (12 months after install)'}.</p>
-      <p class="muted">If you applied and NZTA declined it, they gave you a new date. Enter it here so your bookings line up with it.</p>
-      <form id="adF"><label class="f" for="ad">New date from NZTA</label><input id="ad" type="date" value="${esc(S.me.apply_date || '')}"><div id="adErr" class="note bad" hidden></div><button class="btn brand">Save date</button></form></div>
+    <div class="card"><h2>Apply date</h2><p>Currently <b>${yDate(d.exitEligible)}</b>${S.me.last_violation_date ? ` (6 months after your last violation on ${yDate(S.me.last_violation_date)})` : S.me.apply_date ? ' (the date NZTA gave you)' : ' (12 months after install)'}.</p>
+      <p class="muted">If you applied and NZTA declined it, their email gives the <b>date of your last violation</b>. Enter that date here. You can apply again 6 months after it, and we work that out for you.</p>
+      <form id="lvF"><label class="f" for="lv">Date of last violation (from the NZTA email)</label><input id="lv" type="date" max="${nzToday()}" value="${esc(S.me.last_violation_date || '')}"><div id="lvOut" class="note" hidden></div><div id="lvErr" class="note bad" hidden></div><button class="btn brand">Save</button></form>
+      <details style="margin-top:10px"><summary class="muted">NZTA gave me an actual date to apply instead</summary>
+      <form id="adF"><label class="f" for="ad">Date you can next apply</label><input id="ad" type="date" value="${esc(S.me.apply_date || '')}"><div id="adErr" class="note bad" hidden></div><button class="btn">Save date</button></form></details></div>
     <div class="card"><h2>Keep this handy</h2><p class="muted">In your browser menu choose <b>Add to Home screen</b> to open this like an app.</p><button class="btn ghost" id="out">Sign out</button><p class="muted" style="text-align:center"><a href="../privacy/">Privacy policy</a></p></div>
-    <p class="muted" style="text-align:center;font-size:.75rem">build 2026-11-16 18:17 UTC</p>`;
+    <p class="muted" style="text-align:center;font-size:.75rem">build 2026-11-16 20:19 UTC</p>`;
   $('out').onclick = signOut;
   if ($('prF')) $('prF').onsubmit = async ev => {
     ev.preventDefault();
@@ -986,6 +1011,17 @@ function viewMe() {
     const { error } = await db.rpc('request_price', { p });
     if (error) return toast(errMsg(error), true);
     reload('Request sent. Matt will confirm it.');
+  };
+  const lvDate = () => { const v = $('lv').value; if (!v) return null; const six = addMonths(v, 6), std = S.me.install_date ? addMonths(S.me.install_date, 12) : six; return six > std ? six : std; };
+  $('lv').oninput = () => { const x = lvDate(); $('lvOut').hidden = !x; if (x) $('lvOut').innerHTML = `You can apply again from <b>${yDate(x)}</b>.`; };
+  $('lvF').onsubmit = async ev => {
+    ev.preventDefault();
+    const v = $('lv').value, say = m => { $('lvErr').textContent = m; $('lvErr').hidden = false; };
+    if (!v) return say('Enter the date of your last violation');
+    if (v > nzToday()) return say('That date is in the future. Check the email from NZTA');
+    const { error } = await db.rpc('set_last_violation', { p_date: v });
+    if (error) return say(errMsg(error));
+    reload('Saved. You can apply again from ' + yDate(lvDate()));
   };
   $('adF').onsubmit = async ev => {
     ev.preventDefault();
