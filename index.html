@@ -494,6 +494,7 @@ const services = [
   { id: 'sub', name: 'Subsidised service (no theft protection)', duration: 5, price: 115, onlineBookable: true, subsidised: true, group: 'service', theftProtection: false },
   { id: 'vr', name: 'Violation reset', duration: 5, price: 100, onlineBookable: true, group: 'violation' },
   { id: 'vr-disc', name: 'Violation reset — mechanic / battery', duration: 5, price: 60, onlineBookable: true, group: 'violation' },
+  { id: 'data', name: 'Data reading only', duration: 5, price: 60, onlineBookable: true, group: 'data' },   // between services, e.g. to apply to NZTA without paying for a full service
   { id: 'inst', name: 'Install — standard vehicle', duration: 120, price: 200, onlineBookable: false, group: 'install' },      // + first month rental (+ $7 theft protection) — see installCharge()
   { id: 'inst-sub', name: 'Install — subsidised (fee waived)', duration: 120, price: 0, onlineBookable: false, subsidised: true, group: 'install' },
   { id: 'inst-cx', name: 'Install — complex vehicle', duration: 180, price: 300, onlineBookable: false, group: 'install' },
@@ -576,7 +577,9 @@ const estFor = s => removalEstimates(sessOf(s), S.bookings.filter(b => b.locatio
 const hmOf = v => { const [h, m] = String(v).split(':').map(Number); return h * 60 + m; };
 
 // ---------- state ----------
-const S = { view: 'run', date: null, sessions: [], bookings: [], sel: null, extras: [], custQ: '', custSel: null, customers: [] };
+const S = { view: 'run', date: null, sessions: [], bookings: [], sel: null, extras: [], custQ: '', custSel: null, customers: [], priceReqs: [], custFilter: 'all' };
+const PR = id => S.priceReqs.find(r => r.customer_id === id);
+async function loadPriceReqs() { const { data } = await db.from('price_requests').select('*').eq('status', 'requested'); S.priceReqs = data || []; }
 
 // ---------- auth ----------
 async function start() {
@@ -599,7 +602,7 @@ function renderLogin(msg) {
     <label class="label" for="pw">Password</label><input id="pw" type="password" autocomplete="current-password" required>
     <button class="btn brand" id="loginBtn">Log in</button>
     <div id="loginMsg" class="alert" hidden></div>
-    <div class="empty" style="font-size:.75rem;margin-top:10px">build 2026-11-10 04:46 UTC</div></form>`;
+    <div class="empty" style="font-size:.75rem;margin-top:10px">build 2026-11-16 07:24 UTC</div></form>`;
   const btn = $('loginBtn'), box = $('loginMsg');
   const fail = m => { btn.disabled = false; btn.textContent = 'Log in'; box.textContent = m; box.hidden = false; };
   $('loginForm').onsubmit = async e => {
@@ -633,6 +636,7 @@ async function loadBookings(noLock) {
   if (ids.length) { const r = await db.from('payments').select('*').in('booking_id', ids); pays = r.data || []; }
   data.forEach(b => b.payments = pays.filter(p => p.booking_id === b.id));
   S.bookings = data;
+  await loadPriceReqs();
   // On the day itself, approved removals take their solid time (once, then reload).
   if (!noLock && S.date === nzToday()) {
     const locs = [...new Set(data.filter(b => floating(b) && b.approved_at).map(b => b.location_id))];
@@ -649,15 +653,19 @@ function render() {
       <nav class="tabs"><button class="chip" aria-pressed="${S.view==='run'}" data-v="run">Sessions</button>
         <button class="chip" aria-pressed="${S.view==='cust'}" data-v="cust">Customers</button>
         <button class="chip" aria-pressed="${S.view==='sched'}" data-v="sched">Schedule</button>
+        <button class="chip" aria-pressed="${S.view==='texts'}" data-v="texts">Texts</button>
         <button class="chip" id="refresh">Refresh</button><button class="chip" id="logout">Log out</button></nav></header>
     <div id="body"></div>`;
   document.querySelectorAll('[data-v]').forEach(b => b.onclick = () => { S.view = b.dataset.v; render(); });
   $('refresh').onclick = async () => { await loadSessions(); render(); toast('Updated'); };
   $('logout').onclick = async () => { await db.auth.signOut(); renderLogin(); };
-  S.view === 'run' ? renderRun() : S.view === 'sched' ? renderSchedule() : renderCustomers();
+  S.view === 'run' ? renderRun() : S.view === 'sched' ? renderSchedule() : S.view === 'texts' ? renderTexts() : renderCustomers();
 }
 
 function profileFlag(c, b) {
+  return [PR(c.id) ? 'Price request waiting' : '', c.self_registered ? 'New app sign-up — check details' : '', profileFlag0(c, b)].filter(Boolean).join(' · ');
+}
+function profileFlag0(c, b) {
   if (b.kind === 'removal') {
     if (b.details?.temporary) return `Temporary removal · NZTA approval ${b.details.nztaApprovalRef || '?'}`;
     const z = b.details?.zeroAlcoholLicencePhoto;
@@ -704,13 +712,14 @@ function renderRun() {
        ${[...rs].sort((a, b) => rTime(a) - rTime(b)).map(b => row(0, b)).join('') || '<tr class="free"><td class="t"></td><td colspan="5">— none requested —</td></tr>'}
        ${ws.length ? `<tr><td colspan="6" class="label" style="padding-top:12px">Walk-ins</td></tr>${ws.map(b => row(b.start_min, b)).join('')}` : ''}
        </tbody></table></div>
-       <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap"><button class="btn" data-walk="${s.location_id}">+ Walk-in sale</button><button class="btn ghost" data-add="${s.location_id}">+ Add booking</button></div></div>`;
+       <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap"><button class="btn" data-walk="${s.location_id}">+ Walk-in sale</button><button class="btn ghost" data-add="${s.location_id}">+ Add booking</button><button class="btn ghost" data-msg="${s.location_id}">Text this session</button></div></div>`;
    }).join('') : '<div class="empty">No sessions this day.</div>'}</div>
    <aside class="panel side" id="side"></aside></div>`;
   document.querySelectorAll('[data-d]').forEach(b => b.onclick = async () => { S.date = b.dataset.d; S.sel = null; await loadBookings(); renderRun(); });
   document.querySelectorAll('tr.row').forEach(tr => tr.onclick = () => { S.sel = tr.dataset.b; S.extras = []; renderRun(); });
   document.querySelectorAll('[data-add]').forEach(b => b.onclick = () => { renderAddBooking(b.dataset.add); showSide(); });
   document.querySelectorAll('[data-walk]').forEach(b => b.onclick = () => { renderAddBooking(b.dataset.walk, true); showSide(); });
+  document.querySelectorAll('[data-msg]').forEach(b => b.onclick = () => { renderMessage(b.dataset.msg); showSide(); });
   if (S.sel) showSide();
   renderSide();
 }
@@ -733,6 +742,8 @@ function renderSide() {
   const when = fl ? '≈ ' + fmtTime((sRow && estFor(sRow).get(b.id)) ?? b.start_min) : fmtTime(b.start_min);
   el.innerHTML = `<div class="label">${esc(LOC(b.location_id))} · ${longDate(b.session_date)} · <span class="t">${when}</span></div>
     <h2 style="font-size:1.5rem">${esc(fullName(c))}</h2><div class="empty">${esc(c.mobile || '')}</div>
+    <div style="margin:8px 0"><button class="chip" id="edC">Edit details</button></div>
+    ${priceReqBox(c)}
     <div class="facts"><div class="fact"><div class="label">Installed</div><div class="v">${yDate(c.install_date)}</div></div>
       <div class="fact"><div class="label">Apply date</div><div class="v">${yDate(d.exitEligible)}${c.apply_date_set_by==='customer'?'<br><span class="flag" style="color:var(--warn)">NZTA date, set by customer</span>':''}</div></div>
       <div class="fact"><div class="label">Subsidy</div><div class="v">${d.subsidyEnds ? (d.subsidyActive?'Until ':'Ended ') + yDate(d.subsidyEnds) : 'None'}</div></div>
@@ -757,6 +768,9 @@ function renderSide() {
         ${[['card_terminal','Card terminal'],['tap_to_pay','Tap to Pay'],['cash','Cash'],['on_account','On account']].map(([v,l],i)=>`<button class="btn ${i?'ghost':''}" data-pay="${v}">${l}</button>`).join('')}</div>
         <div class="grid2"><button class="btn ghost" data-st="arrived">Arrived</button><button class="btn ghost" data-st="no_show">No-show</button></div>
         <div style="margin-top:6px"><button class="btn ghost" data-st="cancelled" style="width:100%">Cancel booking</button></div>`}`;
+  const backToRun = async () => { await loadBookings(true); renderRun(); };
+  $('edC').onclick = () => { editCustomer(c, 'side', backToRun); showSide(); };
+  wirePriceReq(el, backToRun);
   el.querySelectorAll('[data-x]').forEach(x => x.onclick = () => { S.extras.push(x.dataset.x); renderSide(); });
   const af = $('addFee'); if (af) af.onclick = () => { const v = $('moreFee').value; if (v) { S.extras.push(v); renderSide(); } };
   const cx = $('clrX'); if (cx) cx.onclick = () => { S.extras = []; renderSide(); };
@@ -776,6 +790,52 @@ function renderSide() {
     $('undoNo').onclick = () => renderSide();
     $('undoYes').onclick = () => undoPayment(b);
   };
+}
+function priceReqBox(c) {
+  const r = PR(c.id); if (!r) return '';
+  const asked = [r.wants_subsidy ? 'Has the subsidy' : null, r.no_theft_protection ? 'No theft protection' : null].filter(Boolean).join(' · ') || 'Price change';
+  return `<div class="alert" style="background:var(--warn-soft);color:var(--ink)"><b>Price request:</b> ${esc(asked)}${r.note ? `<br>“${esc(r.note)}”` : ''}
+    ${r.wants_subsidy && !c.install_date ? '<br><b>No install date on file</b> — add it or the subsidy price will not apply.' : ''}
+    <div class="grid2" style="margin-top:8px"><button class="btn brand" data-pr="yes" data-prid="${r.id}">Approve</button><button class="btn ghost" data-pr="no" data-prid="${r.id}">Decline</button></div>
+    <div class="empty">Approving updates their record and bookings, and texts them.</div></div>`;
+}
+function wirePriceReq(el, after) {
+  el.querySelectorAll('[data-pr]').forEach(x => x.onclick = async () => {
+    el.querySelectorAll('[data-pr]').forEach(y => y.disabled = true);
+    const { error } = await db.rpc('decide_price_request', { p_id: x.dataset.prid, p_approve: x.dataset.pr === 'yes' });
+    if (error) { toast(errMsg(error), true); } else toast(x.dataset.pr === 'yes' ? 'Approved — price updated and customer texted' : 'Declined — customer texted');
+    await loadPriceReqs(); after();
+  });
+}
+function renderMessage(locId) {
+  const el = $('side'), who = [...new Map(S.bookings.filter(b => b.location_id === locId && ['pencilled','confirmed','arrived'].includes(b.status) && b.customer?.mobile).map(b => [b.customer_id, b.customer])).values()];
+  el.innerHTML = `<div class="label">${esc(LOC(locId))} · ${longDate(S.date)}</div><h2>Text this session</h2>
+    <p class="empty">Goes to ${who.length} customer${who.length === 1 ? '' : 's'} booked in this session${who.length ? ': ' + esc(who.map(c => c.first_name || fullName(c)).join(', ')) : ''}.</p>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0">${['Running about 15 minutes late today, sorry.', 'Today\'s session is cancelled, sorry. Please rebook in the app.', 'Change of location today: '].map(t => `<button class="chip" data-tpl="${esc(t)}">${esc(t.slice(0, 26))}…</button>`).join('')}</div>
+    <textarea id="msgT" rows="4" style="width:100%" maxlength="300" placeholder="Your message"></textarea>
+    <div class="empty">“Waikato Interlocks. Reply STOP to OptOut (20c)” is added to the end.</div>
+    <div class="grid2" style="margin-top:8px"><button class="btn brand" id="msgGo" ${who.length ? '' : 'disabled'}>Send to ${who.length}</button><button class="btn ghost" id="msgNo">Back</button></div><div id="msgSure"></div>`;
+  el.querySelectorAll('[data-tpl]').forEach(b => b.onclick = () => { $('msgT').value = b.dataset.tpl; $('msgT').focus(); });
+  $('msgNo').onclick = () => renderSide();
+  $('msgGo').onclick = () => {
+    const m = $('msgT').value.trim(); if (m.length < 3) return toast('Type a message first', true);
+    $('msgSure').innerHTML = `<div class="alert">Send this text to ${who.length} customer${who.length === 1 ? '' : 's'} now?</div><div class="grid2"><button class="btn" id="msgYes">Yes, send</button><button class="btn ghost" id="msgCancel">Not yet</button></div>`;
+    $('msgCancel').onclick = () => { $('msgSure').innerHTML = ''; };
+    $('msgYes').onclick = async () => {
+      $('msgYes').disabled = true;
+      const { data, error } = await db.rpc('message_session', { p_location: locId, p_date: S.date, p_message: m });
+      if (error) { $('msgYes').disabled = false; return toast(errMsg(error), true); }
+      toast('Sent to ' + data + ' customer' + (data === 1 ? '' : 's')); renderSide();
+    };
+  };
+}
+async function renderTexts() {
+  $('body').innerHTML = '<div class="panel"><h2>Texts sent</h2><div class="list" id="tlist"><div class="empty">Loading…</div></div></div>';
+  const { data, error } = await db.from('sms_log').select('*, customer:customers(first_name,last_name)').order('id', { ascending: false }).limit(60);
+  if (error) return toast(errMsg(error), true);
+  const KIND = { login: 'Login code', session: 'Session message', reminder: 'Reminder', test: 'Test', notice: 'Notice' };
+  $('tlist').innerHTML = data.map(t => `<div class="item"><span><b>${esc(t.customer ? fullName(t.customer) : t.to_phone)}</b> <span class="empty">${KIND[t.kind] || t.kind}</span><br><span class="empty">${esc(t.body)}</span></span>
+    <span class="empty" style="text-align:right;white-space:nowrap">${new Date(t.created_at).toLocaleString('en-NZ', { timeZone: 'Pacific/Auckland', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}</span></div>`).join('') || '<div class="empty">No texts sent yet</div>';
 }
 function showSide() { if (matchMedia('(max-width:960px)').matches) setTimeout(() => $('side')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); }
 async function undoPayment(b) {
@@ -933,23 +993,41 @@ async function renderSchedule() {
 }
 
 async function renderCustomers() {
-  $('body').innerHTML = `<div class="layout"><div class="panel"><input id="cq" placeholder="Search name or mobile" style="width:100%" value="${esc(S.custQ)}" autocomplete="off"><div class="list" id="clist"></div></div>
+  const F = [['all', 'All'], ['attention', 'Needs a look'], ['quiet', 'No booking in 5 weeks']];
+  $('body').innerHTML = `<div class="layout"><div class="panel"><input id="cq" placeholder="Search name, mobile, email or rego" style="width:100%" value="${esc(S.custQ)}" autocomplete="off">
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0">${F.map(([k, n]) => `<button class="chip" aria-pressed="${S.custFilter===k}" data-cf="${k}">${n}</button>`).join('')}</div>
+    <div class="empty" id="ccount"></div><div class="list" id="clist"></div></div>
     <aside class="panel side" id="cside"><p class="empty">Pick a customer to edit their install date, subsidy and theft protection.</p></aside></div>`;
   const load = async () => {
-    const q = $('cq').value.trim(); S.custQ = q;
-    let req = db.from('customers').select('*').order('first_name').limit(100);
-    if (q.length >= 2) req = req.or(`first_name.ilike.%${q}%,last_name.ilike.%${q}%,mobile.ilike.%${q}%`);
-    const { data, error } = await req; if (error) return toast(errMsg(error), true);
+    const q = $('cq').value.trim().replace(/[,()%]/g, ' '); S.custQ = q;
+    await loadPriceReqs();
+    let req = db.from('customers').select('*').order('first_name').limit(S.custFilter === 'quiet' ? 1000 : 100);
+    if (q.length >= 2) req = req.or(`first_name.ilike.%${q}%,last_name.ilike.%${q}%,mobile.ilike.%${q}%,email.ilike.%${q}%,vehicle.ilike.%${q}%`);
+    if (S.custFilter === 'attention') { const ids = S.priceReqs.map(r => r.customer_id); req = req.or('self_registered.eq.true' + (ids.length ? `,id.in.(${ids.join(',')})` : '')); }
+    let { data, error } = await req; if (error) return toast(errMsg(error), true);
+    if (S.custFilter === 'quiet') {
+      const r = await db.from('bookings').select('customer_id').gte('session_date', addDays(nzToday(), -35)).neq('status', 'cancelled').limit(5000);
+      if (r.error) return toast(errMsg(r.error), true);
+      const recent = new Set(r.data.map(x => x.customer_id)); data = data.filter(c => !recent.has(c.id));
+    }
     S.customers = data;
-    $('clist').innerHTML = data.map(c => { const d = customerDates(eng(c), nzToday()); return `<div class="item" data-c="${c.id}"><span><b>${esc(fullName(c))}</b><br><span class="empty">${esc(c.mobile||'no mobile')}</span></span>
+    $('ccount').textContent = S.custFilter === 'all' ? '' : data.length + ' customer' + (data.length === 1 ? '' : 's') + (S.custFilter === 'quiet' ? ' with nothing booked in the last 5 weeks or coming up' : ' with a price request or a new app sign-up to check');
+    $('clist').innerHTML = data.map(c => { const d = customerDates(eng(c), nzToday()); return `<div class="item" data-c="${c.id}"><span><b>${esc(fullName(c))}</b>${PR(c.id) ? ' <span class="pill p-pencilled">Price request</span>' : ''}${c.self_registered ? ' <span class="pill p-pencilled">New sign-up</span>' : ''}<br><span class="empty">${esc(c.mobile||'no mobile')}${c.vehicle ? ' · ' + esc(c.vehicle) : ''}</span></span>
       <span class="empty" style="text-align:right">Installed ${yDate(c.install_date)}<br>${c.subsidised ? (d.subsidyActive ? 'Subsidised' : 'Subsidy ended') : 'Full price'}${c.theft_protection?' · TP':''}</span></div>`; }).join('') || '<div class="empty">No customers found</div>';
-    $('clist').querySelectorAll('[data-c]').forEach(it => it.onclick = () => editCustomer(S.customers.find(c => c.id === it.dataset.c)));
+    $('clist').querySelectorAll('[data-c]').forEach(it => it.onclick = () => { editCustomer(S.customers.find(c => c.id === it.dataset.c)); if (matchMedia('(max-width:960px)').matches) setTimeout(() => $('cside')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); });
   };
+  document.querySelectorAll('[data-cf]').forEach(b => b.onclick = () => { S.custFilter = b.dataset.cf; renderCustomers(); });
   let t; $('cq').oninput = () => { clearTimeout(t); t = setTimeout(load, 250); }; load();
 }
-function editCustomer(c) {
-  const d = customerDates(eng(c), nzToday());
-  $('cside').innerHTML = `<h2>${esc(fullName(c))}</h2><div class="empty">${esc(c.mobile || '')} · ${esc(c.email || '')}</div>
+function editCustomer(c, target = 'cside', after = renderCustomers) {
+  const d = customerDates(eng(c), nzToday()), el = $(target);
+  const m = allowedServices(eng(c), services, nzToday()).find(x => x.group === 'service');
+  el.innerHTML = `${target === 'side' ? '<button class="chip" id="edBack">← Back to checkout</button>' : ''}
+    <h2>${esc(fullName(c))}</h2><div class="empty">${esc(c.mobile || '')} · ${esc(c.email || '')}</div>
+    <div class="empty">Pays now: <b>${m ? esc(m.name) + ' ' + money(m.price) : '—'}</b></div>
+    ${priceReqBox(c)}
+    ${c.self_registered ? `<div class="alert" style="background:var(--warn-soft);color:var(--ink)"><b>New app sign-up.</b> They entered these details themselves. Check them, then mark as checked.
+      <div class="grid2" style="margin-top:8px"><button class="btn brand" id="mkChecked">Details checked</button><button class="btn ghost" id="joinOpen">Join with existing customer</button></div><div id="joinBox"></div></div>` : ''}
     <form class="form" id="cf" style="margin-top:10px">
       <label>First name<input id="f_first" value="${esc(c.first_name)}"></label><label>Last name<input id="f_last" value="${esc(c.last_name)}"></label>
       <label>Mobile<input id="f_mob" value="${esc(c.mobile)}"></label><label>Email<input id="f_em" value="${esc(c.email)}"></label>
@@ -962,6 +1040,26 @@ function editCustomer(c) {
       <label class="full">Notes<textarea id="f_no" rows="3">${esc(c.notes)}</textarea></label>
       <div class="full empty">Apply date ${yDate(d.exitEligible)} · subsidy ${d.subsidyEnds ? (d.subsidyActive ? 'until ' : 'ended ') + yDate(d.subsidyEnds) : 'none'}</div>
       <div class="full"><button class="btn brand">Save</button></div></form>`;
+  if ($('edBack')) $('edBack').onclick = after;
+  wirePriceReq(el, after);
+  if ($('mkChecked')) $('mkChecked').onclick = async () => {
+    const { error } = await db.from('customers').update({ self_registered: false }).eq('id', c.id);
+    if (error) return toast(errMsg(error), true); toast('Marked as checked'); after();
+  };
+  if ($('joinOpen')) $('joinOpen').onclick = () => {
+    $('joinBox').innerHTML = `<input id="jq" placeholder="Find their existing record (name or mobile)" style="width:100%;margin-top:8px" autocomplete="off"><div class="list" id="jlist"></div>`;
+    let jt; $('jq').oninput = () => { clearTimeout(jt); jt = setTimeout(async () => {
+      const q = $('jq').value.trim().replace(/[,()%]/g, ' '); if (q.length < 2) return $('jlist').innerHTML = '';
+      const { data } = await db.from('customers').select('*').neq('id', c.id).or(`first_name.ilike.%${q}%,last_name.ilike.%${q}%,mobile.ilike.%${q}%`).order('first_name').limit(8);
+      $('jlist').innerHTML = (data || []).map(x => `<div class="item"><span><b>${esc(fullName(x))}</b><br><span class="empty">${esc(x.mobile || 'no mobile')} · installed ${yDate(x.install_date)}</span></span><button class="btn ghost" data-join="${x.id}">Join into this one</button></div>`).join('') || '<div class="empty">No match</div>';
+      $('jlist').querySelectorAll('[data-join]').forEach(bn => bn.onclick = async () => {
+        if (bn.dataset.sure !== '1') { bn.dataset.sure = '1'; bn.textContent = 'Tap again to join'; bn.className = 'btn'; return; }
+        const { error } = await db.rpc('merge_customers', { p_keep: bn.dataset.join, p_drop: c.id });
+        if (error) return toast(errMsg(error), true); toast('Joined — bookings moved across'); after();
+      });
+    }, 250); };
+    $('jq').focus();
+  };
   $('cf').onsubmit = async e => {
     e.preventDefault();
     const v = id => $(id).value.trim() || null;
@@ -969,8 +1067,8 @@ function editCustomer(c) {
       subsidised: $('f_sub').checked, theft_protection: $('f_tp').checked, subsidy_start: v('f_ss'), alerts: v('f_al'), notes: v('f_no') };
     const ad = v('f_ad'); if (ad !== c.apply_date) Object.assign(upd, { apply_date: ad, apply_date_set_by: ad ? 'staff' : null, apply_date_set_on: ad ? new Date().toISOString() : null });
     const { error } = await db.from('customers').update(upd).eq('id', c.id);
-    if (error) return toast(errMsg(error), true);
-    toast('Saved'); renderCustomers();
+    if (error) return toast(/duplicate|unique/i.test(errMsg(error)) ? 'Another customer already has that mobile. Use "Join with existing customer" instead.' : errMsg(error), true);
+    toast('Saved'); after();
   };
 }
 
