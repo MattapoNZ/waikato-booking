@@ -336,15 +336,24 @@ function customerDates(c, today) {
 
 // Monthly service window = rollover day-of-month each month, ±7 days.
 // The rollover date is the install date unless it was changed (e.g. a second device was fitted later).
-function serviceWindow(c, onOrAfter) {
+// `servicedDates` = days a MONTHLY SERVICE was actually done and charged (not a violation reset or a
+// data reading). A window that already has one is finished, so the next month's window is returned.
+function serviceWindow(c, onOrAfter, servicedDates = []) {
   const anchor = c.rolloverDate || c.installDate;
   if (!anchor) return null;
   for (let i = 0; i < 600; i++) {
     const due = addMonths(anchor, i);
     if (i === 0 && !c.rolloverDate) continue;   // install day itself is not a service
-    if (addDays(due, 7) >= onOrAfter) return { due, opens: addDays(due, -7), closes: addDays(due, 7) };
+    const opens = addDays(due, -7), closes = addDays(due, 7);
+    if (closes < onOrAfter) continue;
+    if (servicedDates.some(d => d >= opens && d <= closes)) continue;   // this month's service is done
+    return { due, opens, closes };
   }
   return null;
+}
+// The days a customer had their monthly service, from their bookings: completed, and the thing charged was the service itself.
+function servicedDates(bookings, services) {
+  return bookings.filter(b => b.status === 'completed' && (services.find(s => s.id === b.service_id) || {}).group === 'service').map(b => b.session_date);
 }
 
 // Exactly what this customer is allowed to book, worked out from their profile:
@@ -825,7 +834,7 @@ function exitCard(d, today, w) {
 }
 
 function viewHome() {
-  const today = nzToday(), e = eng(), d = customerDates(e, today), sv = live('service'), rm = live('removal'), m = monthlyOn(today), w = serviceWindow(e, today);
+  const today = nzToday(), e = eng(), d = customerDates(e, today), sv = live('service'), rm = live('removal'), m = monthlyOn(today), w = serviceWindow(e, today, servicedDates(S.bookings, services));
   const toApply = d.exitEligible ? Math.round((parseDate(d.exitEligible) - parseDate(today)) / 86400000) : null;
   $('view').innerHTML = `<h1>Hi ${esc(S.me.first_name || 'there')}</h1>
     ${(S.me.bills || []).map(x => `<div class="card"><h2>Bill to pay: ${money(x.amount_cents / 100)}</h2><p>${esc(x.description)}</p>
@@ -880,7 +889,7 @@ function confirmBook(r, svcFor) {
   const s = svcFor(r.session_date), l = LOC(r.location_id);
   if (!s) return toast('That service is not available to you online. Text Matt on ' + MATT, true);
   const adv = S.svc === 'service' ? applyDateAdvice(eng(), r.session_date, S.avail.map(x => ({ session: { date: x.session_date }, offered: x.offered_min, row: x }))) : null;
-  const w = s.id === 'data' ? serviceWindow(eng(), r.session_date) : null, inWin = w && r.session_date >= w.opens && r.session_date <= w.closes;
+  const w = s.id === 'data' ? serviceWindow(eng(), r.session_date, servicedDates(S.bookings, services)) : null, inWin = w && r.session_date >= w.opens && r.session_date <= w.closes;
   const dataNote = s.id !== 'data' ? '' : `<div class="note"><b>Are you sure this is what you want?</b> This is a data reading only. It is not your monthly service, and you still need your service when it is due.
     ${inWin && !live('service') ? `<br><b>Your monthly service is due around ${shortDate(w.due)}</b>, and a full service includes the data reading. <button class="btn brand" id="fullSvc">Book my monthly service instead</button>` : ''}</div>`;
   $('conf').innerHTML = `<div class="card" id="confCard"><h2>Confirm</h2><div class="big">${longDate(r.session_date)}</div><div class="big t" style="color:var(--brand)">${fmtTime(r.offered_min)}</div>
@@ -1002,7 +1011,7 @@ function viewMe() {
       <details style="margin-top:10px"><summary class="muted">NZTA gave me an actual date to apply instead</summary>
       <form id="adF"><label class="f" for="ad">Date you can next apply</label><input id="ad" type="date" value="${esc(S.me.apply_date || '')}"><div id="adErr" class="note bad" hidden></div><button class="btn">Save date</button></form></details></div>
     <div class="card"><h2>Keep this handy</h2><p class="muted">In your browser menu choose <b>Add to Home screen</b> to open this like an app.</p><button class="btn ghost" id="out">Sign out</button><p class="muted" style="text-align:center"><a href="../privacy/">Privacy policy</a></p></div>
-    <p class="muted" style="text-align:center;font-size:.75rem">build 2026-11-16 20:19 UTC</p>`;
+    <p class="muted" style="text-align:center;font-size:.75rem">build 2026-11-16 20:31 UTC</p>`;
   $('out').onclick = signOut;
   if ($('prF')) $('prF').onsubmit = async ev => {
     ev.preventDefault();
