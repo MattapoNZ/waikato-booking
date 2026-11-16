@@ -360,7 +360,10 @@ function customerDates(c, today) {
     applyDateSource: c.applyDate ? (c.applyDateSetBy || 'customer') : 'install',
     subsidyStart: subStart,
     subsidyEnds,
-    subsidyActive: !!subsidyEnds && (!today || today < subsidyEnds),
+    // The subsidy stays ACTIVE until staff switch it off (when Dräger emails to say it has ended).
+    // subsidyEnds is only the expected end; subsidyOverdue flags that the 15 months have passed.
+    subsidyActive: !!c.subsidised,
+    subsidyOverdue: !!c.subsidised && !!subsidyEnds && !!today && today >= subsidyEnds,
   };
 }
 
@@ -630,7 +633,7 @@ function renderLogin(msg) {
     <label class="label" for="pw">Password</label><input id="pw" type="password" autocomplete="current-password" required>
     <button class="btn brand" id="loginBtn">Log in</button>
     <div id="loginMsg" class="alert" hidden></div>
-    <div class="empty" style="font-size:.75rem;margin-top:10px">build 2026-11-16 08:23 UTC</div></form>`;
+    <div class="empty" style="font-size:.75rem;margin-top:10px">build 2026-11-16 08:30 UTC</div></form>`;
   const btn = $('loginBtn'), box = $('loginMsg');
   const fail = m => { btn.disabled = false; btn.textContent = 'Log in'; box.textContent = m; box.hidden = false; };
   $('loginForm').onsubmit = async e => {
@@ -775,7 +778,7 @@ function renderSide() {
     ${priceReqBox(c)}
     <div class="facts"><div class="fact"><div class="label">Installed</div><div class="v">${yDate(c.install_date)}</div></div>
       <div class="fact"><div class="label">Apply date</div><div class="v">${yDate(d.exitEligible)}${c.apply_date_set_by==='customer'?'<br><span class="flag" style="color:var(--warn)">NZTA date, set by customer</span>':''}</div></div>
-      <div class="fact"><div class="label">Subsidy</div><div class="v">${d.subsidyEnds ? (d.subsidyActive?'Until ':'Ended ') + yDate(d.subsidyEnds) : 'None'}</div></div>
+      <div class="fact"><div class="label">Subsidy</div><div class="v">${d.subsidyActive ? (d.subsidyOverdue ? 'Active<br><span class="flag" style="color:var(--warn)">15 months passed ' + yDate(d.subsidyEnds) + ' — on until Dräger emails</span>' : d.subsidyEnds ? 'Until ' + yDate(d.subsidyEnds) : 'Active') : 'None'}</div></div>
       <div class="fact"><div class="label">Theft protection</div><div class="v">${c.theft_protection ? 'Yes' : 'No'}</div></div></div>
     ${flag ? `<div class="alert">⚑ ${esc(flag)}</div>` : ''}
     ${fl && !b.approved_at ? `<div class="alert" style="background:var(--warn-soft);color:var(--ink)">Placeholder only — no time is held. It moves later if a service books that time.</div>
@@ -1050,7 +1053,7 @@ async function renderCustomers() {
     S.customers = data;
     $('ccount').textContent = S.custFilter === 'all' ? '' : data.length + ' customer' + (data.length === 1 ? '' : 's') + (S.custFilter === 'quiet' ? ' with nothing booked in the last 5 weeks or coming up' : ' with a price request or a new app sign-up to check');
     $('clist').innerHTML = data.map(c => { const d = customerDates(eng(c), nzToday()); return `<div class="item" data-c="${c.id}"><span><b>${esc(fullName(c))}</b>${PR(c.id) ? ' <span class="pill p-pencilled">Price request</span>' : ''}${c.self_registered ? ' <span class="pill p-pencilled">New sign-up</span>' : ''}<br><span class="empty">${esc(c.mobile||'no mobile')}${c.vehicle ? ' · ' + esc(c.vehicle) : ''}</span></span>
-      <span class="empty" style="text-align:right">Installed ${yDate(c.install_date)}<br>${c.subsidised ? (d.subsidyActive ? 'Subsidised' : 'Subsidy ended') : 'Full price'}${c.theft_protection?' · TP':''}</span></div>`; }).join('') || '<div class="empty">No customers found</div>';
+      <span class="empty" style="text-align:right">Installed ${yDate(c.install_date)}<br>${c.subsidised ? (d.subsidyOverdue ? 'Subsidised · 15 mths passed' : 'Subsidised') : 'Full price'}${c.theft_protection?' · TP':''}</span></div>`; }).join('') || '<div class="empty">No customers found</div>';
     $('clist').querySelectorAll('[data-c]').forEach(it => it.onclick = () => { editCustomer(S.customers.find(c => c.id === it.dataset.c)); if (matchMedia('(max-width:960px)').matches) setTimeout(() => $('cside')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); });
   };
   document.querySelectorAll('[data-cf]').forEach(b => b.onclick = () => { S.custFilter = b.dataset.cf; renderCustomers(); });
@@ -1076,7 +1079,7 @@ function editCustomer(c, target = 'cside', after = renderCustomers) {
       <label class="full">Service rollover date (if different from install, e.g. second device fitted)<input id="f_ro" type="date" value="${esc(c.rollover_date)}"></label>
       <label class="full">Alert (shows in red at checkout)<input id="f_al" value="${esc(c.alerts)}"></label>
       <label class="full">Notes<textarea id="f_no" rows="3">${esc(c.notes)}</textarea></label>
-      <div class="full empty">Apply date ${yDate(d.exitEligible)} · subsidy ${d.subsidyEnds ? (d.subsidyActive ? 'until ' : 'ended ') + yDate(d.subsidyEnds) : 'none'}${(w => w ? ' · next service due ' + yDate(w.due) : '')(serviceWindow(eng(c), nzToday()))}</div>
+      <div class="full empty">Apply date ${yDate(d.exitEligible)} · subsidy ${d.subsidyActive ? (d.subsidyOverdue ? 'ACTIVE, 15 months passed ' + yDate(d.subsidyEnds) + ' — untick Subsidised when Dräger emails' : d.subsidyEnds ? 'expected until ' + yDate(d.subsidyEnds) : 'active') : 'none'}${(w => w ? ' · next service due ' + yDate(w.due) : '')(serviceWindow(eng(c), nzToday()))}</div>
       <div class="full"><button class="btn brand">Save</button></div></form>`;
   if ($('edBack')) $('edBack').onclick = after;
   wirePriceReq(el, after);
