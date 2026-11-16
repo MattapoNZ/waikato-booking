@@ -509,6 +509,8 @@ const SUPABASE_KEY = 'sb_publishable_vJ2mi3Ig-2fK_rBQIGA6Zw_4wt8eLpE'; // public
 const db = (window.__mockSupabase || window.supabase).createClient(SUPABASE_URL, SUPABASE_KEY,
   { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, lock: async (_n, _t, fn) => fn() } });
 const MATT = '027 264 6986';
+const DRAEGER = '0800 372 437';
+const unlockNote = () => `<b>Locked out or need an unlock code?</b> Call Dräger on <a href="tel:${DRAEGER.replace(/ /g,'')}">${DRAEGER}</a>. Only Dräger can give unlock codes, Matt can't.`;
 
 // ---------- helpers ----------
 const $ = id => document.getElementById(id);
@@ -574,9 +576,44 @@ async function renderPay(token) {
     if (r.data?.url) location.href = r.data.url; else renderPay(token);
   };
 }
+// ---------- new customer form (link Matt texts to people; no sign-in needed) ----------
+function renderEnquiry() {
+  const f = (id, label, attrs = '') => `<div><label class="f" for="${id}">${label}</label><input id="${id}" ${attrs}></div>`;
+  $('app').innerHTML = `<h1>Waikato Interlocks</h1><p class="muted">Getting a Dräger alcohol interlock fitted? Fill this in and Matt will be in touch to sort a time. It takes about two minutes.</p>
+    <form id="enF"><div class="card"><h2>About you</h2>
+      <div class="facts">${f('enFn', 'First name', 'autocomplete="given-name" required')}${f('enLn', 'Last name', 'autocomplete="family-name" required')}</div>
+      ${f('enMo', 'Mobile', 'type="tel" inputmode="tel" autocomplete="tel" placeholder="021 123 4567" required')}
+      ${f('enEm', 'Email', 'type="email" autocomplete="email" placeholder="So we can send reminders"')}
+      ${f('enTo', 'Town or suburb where the vehicle is', 'placeholder="e.g. Te Awamutu"')}
+      <label class="f" for="enAr">Preferred service location</label><select id="enAr"><option value="">Not sure yet</option>${locations.map(l => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join('')}</select></div>
+    <div class="card"><h2>The vehicle</h2>
+      <div class="facts">${f('enRe', 'Plate', 'maxlength="6" autocapitalize="characters"')}${f('enYr', 'Year', 'inputmode="numeric" maxlength="4"')}${f('enMk', 'Make', 'placeholder="Toyota"')}${f('enMd', 'Model', 'placeholder="Hilux"')}
+        <div><label class="f" for="enSt">Start</label><select id="enSt"><option value="">Choose…</option><option value="key">Key</option><option value="push">Push button</option></select></div>
+        <div><label class="f" for="enFu">Fuel</label><select id="enFu"><option value="">Choose…</option><option value="petrol">Petrol</option><option value="diesel">Diesel</option><option value="hybrid">Hybrid</option><option value="ev">Electric</option></select></div></div></div>
+    <div class="card"><h2>Your licence</h2>
+      <label class="f" for="enHl">Do you have your alcohol interlock licence yet?</label><select id="enHl"><option value="">Choose…</option><option value="yes">Yes, I have it</option><option value="applied">I've applied</option><option value="no">Not yet</option></select>
+      ${f('enLd', 'Date you can apply for it (if you know)', 'type="date"')}
+      <label class="f" for="enSu">Do you think you qualify for the subsidy?</label><select id="enSu"><option value="">Choose…</option><option value="yes">Yes</option><option value="no">No</option><option value="unsure">Not sure</option></select>
+      <label class="f" for="enNo">Anything else Matt should know? Days or times that suit?</label><textarea id="enNo" rows="3" maxlength="1000"></textarea>
+      <div id="enErr" class="note bad" hidden></div><button class="btn brand" id="enGo">Send my details</button>
+      <p class="muted" style="margin-top:8px">We only use this to set up your install and bookings. <a href="../privacy/">Privacy policy</a></p></div></form>
+    <p class="muted" style="text-align:center;margin-top:16px">Prefer to talk? Text or call Matt on <a href="tel:${MATT.replace(/ /g,'')}">${MATT}</a></p>`;
+  $('enF').onsubmit = async ev => {
+    ev.preventDefault(); const v = id => $(id).value.trim();
+    $('enGo').disabled = true; $('enErr').hidden = true;
+    const { error } = await db.rpc('submit_enquiry', { p: { firstName: v('enFn'), lastName: v('enLn'), mobile: v('enMo'), email: v('enEm'), town: v('enTo'), area: v('enAr'),
+      rego: v('enRe'), year: v('enYr'), make: v('enMk'), model: v('enMd'), start: v('enSt'), fuel: v('enFu'), hasLicence: v('enHl'), licenceDate: v('enLd'), subsidy: v('enSu'), note: v('enNo') } });
+    if (error) { $('enGo').disabled = false; $('enErr').textContent = errMsg(error); $('enErr').hidden = false; return; }
+    $('app').innerHTML = `<h1>Waikato Interlocks</h1><div class="card"><h2>Thanks, ${esc(v('enFn'))} — we have your details</h2>
+      <p>Matt will be in touch to sort out a time for your install.</p><p class="muted">Anything urgent, text or call him on <a href="tel:${MATT.replace(/ /g,'')}">${MATT}</a>.</p></div>`;
+    scrollTo(0, 0);
+  };
+}
 async function start() {
-  const payTok = new URLSearchParams(location.search).get('pay');
+  const qs = new URLSearchParams(location.search);
+  const payTok = qs.get('pay');
   if (payTok) return renderPay(payTok);
+  if (qs.has('new')) return renderEnquiry();
   const authErr = urlAuthError();
   if (authErr) return renderLogin(authErr);
   try {
@@ -593,7 +630,7 @@ async function start() {
 async function renderLogin(msg) {
   $('app').innerHTML = `<h1>Waikato Interlocks</h1><p class="muted">Book your interlock service, see your dates and what you pay.</p>
     <div class="card" id="lg">${msg ? `<div class="note bad">${esc(msg)}</div>` : ''}<p class="muted">Checking sign-in options…</p></div>
-    <p class="muted" style="text-align:center;margin-top:16px">Installs and anything urgent: text or call Matt on <a href="tel:${MATT.replace(/ /g,'')}">${MATT}</a><br><a href="../privacy/">Privacy policy</a></p>`;
+    <p class="muted" style="text-align:center;margin-top:16px"><b>New here and need an interlock fitted?</b> <a href="?new">Send us your details</a><br>Anything urgent: text or call Matt on <a href="tel:${MATT.replace(/ /g,'')}">${MATT}</a><br>${unlockNote()}<br><a href="../privacy/">Privacy policy</a></p>`;
   let ext = {};
   try { ext = (await (await fetch(SUPABASE_URL + '/auth/v1/settings', { headers: { apikey: SUPABASE_KEY } })).json()).external || {}; } catch (e) {}
   if (window.__mockSupabase) ext = window.__mockSupabase.providers || ext;
@@ -647,7 +684,7 @@ function renderNoMatch(msg) {
       ${byPhone ? `<label class="f" for="suEm">Email (optional)</label><input id="suEm" type="email" autocomplete="email">`
                 : `<label class="f" for="suMb">Mobile number</label><input id="suMb" type="tel" inputmode="tel" autocomplete="tel" placeholder="021 123 4567" required>`}
       <label class="f" for="suVe">Vehicle rego (optional)</label><input id="suVe" autocapitalize="characters" maxlength="8">
-      <label class="f" for="suLo">Where you'd usually come</label><select id="suLo"><option value="">Not sure yet</option>${locations.map(l => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join('')}</select>
+      <label class="f" for="suLo">Preferred service location</label><select id="suLo"><option value="">Not sure yet</option>${locations.map(l => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join('')}</select>
       <label class="f" for="suIn">Interlock install date, if you know it (optional)</label><input id="suIn" type="date" max="${nzToday()}">
       <div id="suMsg" class="note bad" hidden></div>
       <button class="btn brand" id="suGo">Create my account</button>
@@ -696,6 +733,7 @@ function render() {
   $('app').innerHTML = `<div id="view"></div><nav>${tabs.map(([k, n]) => `<button data-tab="${k}" ${S.tab===k?'aria-current="page"':''}>${n}</button>`).join('')}</nav>`;
   document.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { S.tab = b.dataset.tab; S.confirm = null; S.rPick = null; render(); scrollTo(0, 0); });
   ({ home: viewHome, book: viewBook, more: viewMore, me: viewMe })[S.tab]();
+  if (S.tab === 'home' || S.tab === 'me') $('view').insertAdjacentHTML('beforeend', `<div class="note" style="margin-top:14px">${unlockNote()}</div>`);
 }
 
 // ---------- add to calendar ----------
@@ -936,7 +974,7 @@ function viewMe() {
       <p class="muted">If you applied and NZTA declined it, they gave you a new date. Enter it here so your bookings line up with it.</p>
       <form id="adF"><label class="f" for="ad">New date from NZTA</label><input id="ad" type="date" value="${esc(S.me.apply_date || '')}"><div id="adErr" class="note bad" hidden></div><button class="btn brand">Save date</button></form></div>
     <div class="card"><h2>Keep this handy</h2><p class="muted">In your browser menu choose <b>Add to Home screen</b> to open this like an app.</p><button class="btn ghost" id="out">Sign out</button><p class="muted" style="text-align:center"><a href="../privacy/">Privacy policy</a></p></div>
-    <p class="muted" style="text-align:center;font-size:.75rem">build 2026-11-16 09:03 UTC</p>`;
+    <p class="muted" style="text-align:center;font-size:.75rem">build 2026-11-16 09:24 UTC</p>`;
   $('out').onclick = signOut;
   if ($('prF')) $('prF').onsubmit = async ev => {
     ev.preventDefault();
@@ -956,7 +994,7 @@ function viewMe() {
   };
 }
 
-db.auth.onAuthStateChange((ev) => { if (ev === 'SIGNED_IN' && !S.me && !S.starting && !new URLSearchParams(location.search).get('pay')) { S.starting = true; setTimeout(() => start().finally(() => S.starting = false), 0); } });
+db.auth.onAuthStateChange((ev) => { if (ev === 'SIGNED_IN' && !S.me && !S.starting && !new URLSearchParams(location.search).get('pay') && !new URLSearchParams(location.search).has('new')) { S.starting = true; setTimeout(() => start().finally(() => S.starting = false), 0); } });
 start();
 </script>
 </body>
