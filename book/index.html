@@ -39,6 +39,7 @@ label.f{display:block;font-size:.8rem;font-weight:700;letter-spacing:.05em;text-
 nav{position:fixed;left:0;right:0;bottom:0;background:var(--panel);border-top:1px solid var(--line);display:flex;justify-content:center;padding-bottom:env(safe-area-inset-bottom);z-index:5}
 nav button{flex:1;max-width:140px;border:0;background:none;color:var(--muted);padding:12px 4px 10px;font-weight:600;font-size:.9rem;border-top:3px solid transparent}
 nav button[aria-current="page"]{color:var(--brand);border-top-color:var(--accent)}
+.chk{display:flex;align-items:center;gap:10px;padding:10px 0;font-size:1rem} .chk input{width:22px;height:22px;flex:none}
 .toast{position:fixed;left:50%;bottom:calc(92px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;max-width:92vw;z-index:20;text-align:center}
 .toast.bad{background:var(--bad);color:#fff}
 a{color:var(--brand)}
@@ -470,6 +471,7 @@ const services = [
   { id: 'sub', name: 'Subsidised service (no theft protection)', duration: 5, price: 115, onlineBookable: true, subsidised: true, group: 'service', theftProtection: false },
   { id: 'vr', name: 'Violation reset', duration: 5, price: 100, onlineBookable: true, group: 'violation' },
   { id: 'vr-disc', name: 'Violation reset — mechanic / battery', duration: 5, price: 60, onlineBookable: true, group: 'violation' },
+  { id: 'data', name: 'Data reading only', duration: 5, price: 60, onlineBookable: true, group: 'data' },   // between services, e.g. to apply to NZTA without paying for a full service
   { id: 'rem', name: 'Removal', duration: 15, price: 110, onlineBookable: true, group: 'removal' }, // floating placeholder until approved + locked on the morning; temporary removals are handled the same (need NZTA approval)
   { id: 'chg', name: 'Changeover to another vehicle', duration: 120, price: 290, priceComplex: 350, onlineBookable: true, group: 'changeover', requestOnly: true }, // request + vehicle details; done ON SITE at an arranged approx time; $290 standard / $350 complex (Dräger)
 
@@ -517,7 +519,7 @@ const nzPhone = v => { const d = String(v).replace(/\D/g, '').replace(/^(64|0)/,
 const S = { tab: 'home', me: null, user: null, bookings: [], avail: [], rAvail: [], rTimes: [], requests: [], svc: null, loc: 'all', confirm: null, rPick: null };
 const eng = () => ({ id: S.me.id, installDate: S.me.install_date, subsidised: S.me.subsidised, subsidyStart: S.me.subsidy_start, subsidyMonths: S.me.subsidy_months ?? 15,
   theftProtection: S.me.theft_protection, applyDate: S.me.apply_date, applyDateSetBy: S.me.apply_date_set_by, blockedServiceIds: S.me.blocked || [] });
-const live = k => S.bookings.find(b => b.kind === k && ['pencilled','confirmed'].includes(b.status) && b.session_date >= nzToday());
+const live = (k, data = false) => S.bookings.find(b => b.kind === k && (b.service_id === 'data') === data && ['pencilled','confirmed'].includes(b.status) && b.session_date >= nzToday());
 const monthlyOn = d => allowedServices(eng(), services, d).find(s => s.group === 'service');
 const removalOn = d => allowedServices(eng(), services, d).find(s => s.group === 'removal');
 
@@ -669,7 +671,7 @@ const icsTime = dt => dt.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '
 function calEvent(b, est) {
   const l = LOC(b.location_id), rem = b.kind === 'removal', fl = rem && b.time_locked === false;
   const start = nzToUtc(b.session_date, est), end = new Date(start.getTime() + (rem ? 15 : 10) * 60000);
-  const title = 'Interlock ' + (rem ? (b.details?.temporary ? 'temporary removal' : 'removal') : 'service') + ' – Waikato Interlocks';
+  const title = 'Interlock ' + (rem ? (b.details?.temporary ? 'temporary removal' : 'removal') : b.service_id === 'data' ? 'data reading' : 'service') + ' – Waikato Interlocks';
   const desc = (fl ? 'Approximate time – it can move later and is confirmed on the morning. ' : '') +
     (b.price_cents ? 'To pay on the day: ' + money(b.price_cents / 100) + '. ' : '') + 'Questions: text Matt on ' + MATT + '.';
   return { title, desc, where: l.name + (l.address ? ', ' + l.address : ''), start, end, uid: b.id + '@waikato-interlocks' };
@@ -720,9 +722,12 @@ function viewHome() {
   const toApply = d.exitEligible ? Math.round((parseDate(d.exitEligible) - parseDate(today)) / 86400000) : null;
   $('view').innerHTML = `<h1>Hi ${esc(S.me.first_name || 'there')}</h1>
     ${sv ? bookingCard(sv) : `<div class="card"><h2>No service booked</h2>${w ? `<p>Your next service is due around <b>${shortDate(w.due)}</b>.</p>` : ''}<button class="btn" id="goBook">Book a service</button></div>`}
+    ${live('service', true) ? bookingCard(live('service', true)) : ''}
     ${rm ? bookingCard(rm) : ''}
+    ${S.me.self_registered ? '<div class="note">Matt still needs to check your details. Your price and dates may change once he has.</div>' : ''}
     <div class="card"><h2>What you pay</h2>${m ? `<div class="slot"><span>${esc(m.name)}</span><b class="t">${money(m.price)}</b></div>` : ''}
-      <p class="muted">Paid on the day. A violation reset is $100 extra, or $60 if it was a mechanic or flat battery.</p></div>
+      <p class="muted">Paid on the day. A violation reset is $100 extra, or $60 if it was a mechanic or flat battery.</p>
+      ${priceReqNote()}<button class="btn ghost" id="goPrice">Should your price be different?</button></div>
     <div class="card"><h2>Your dates</h2><div class="facts">
       <div class="fact"><div class="k">Installed</div><div class="v">${yDate(S.me.install_date)}</div></div>
       <div class="fact"><div class="k">Apply date</div><div class="v">${yDate(d.exitEligible)}</div></div>
@@ -731,20 +736,24 @@ function viewHome() {
       ${toApply === null ? '' : toApply > 0 ? `<p class="muted">${toApply} day${toApply === 1 ? '' : 's'} until you can apply to NZTA to have it removed. You need a service on or after that date.</p>`
         : '<p class="muted">You can now apply to NZTA for removal, once you have had a service on or after your apply date.</p>'}</div>`;
   if ($('goBook')) $('goBook').onclick = () => { S.tab = 'book'; render(); };
+  $('goPrice').onclick = () => { S.tab = 'me'; render(); setTimeout(() => $('prCard')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); };
   wireCancel();
 }
 
 function viewBook() {
-  const sv = live('service');
-  if (sv) { $('view').innerHTML = `<h1>Book</h1><div class="note">You already have a booking. Cancel it first if you need a different day.</div>${bookingCard(sv)}`; return wireCancel(); }
-  const opts = [['service', 'Monthly service'], ['vr', 'Violation reset'], ['vr-disc', 'Reset — mechanic / battery']];
-  S.svc = S.svc || 'service';
+  const sv = live('service'), dv = live('service', true);
+  const opts = [...(sv ? [] : [['service', 'Monthly service'], ['vr', 'Violation reset'], ['vr-disc', 'Reset — mechanic / battery']]), ...(dv ? [] : [['data', 'Data reading only']])];
+  const have = (sv ? bookingCard(sv) : '') + (dv ? bookingCard(dv) : '');
+  if (!opts.length) { $('view').innerHTML = `<h1>Book</h1><div class="note">You already have these booked. Cancel one first if you need a different day.</div>${have}`; return wireCancel(); }
+  if (!opts.some(o => o[0] === S.svc)) S.svc = opts[0][0];
+  const WHY = { service: 'Having a violation reset too? Book the service and tell Matt on the day. It is one appointment.',
+    data: 'A reading of your interlock data only, $60. For when you want to apply to NZTA but are not due a service. It is not your monthly service.' };
   const rows = S.avail.filter(r => S.loc === 'all' || r.location_id === S.loc);
   const locs = [...new Set(S.avail.map(r => r.location_id))];
   const svcFor = date => S.svc === 'service' ? monthlyOn(date) : SVC(S.svc);
-  $('view').innerHTML = `<h1>Book</h1>
+  $('view').innerHTML = `<h1>Book</h1>${have ? `<div class="note">You already have a booking. You can still add the option below.</div>${have}` : ''}
     <div class="card"><h2>What for?</h2><div class="chips">${opts.map(([k, n]) => `<button class="chip" aria-pressed="${S.svc===k}" data-svc="${k}">${n}</button>`).join('')}</div>
-      <p class="muted">${S.svc === 'service' ? 'Having a violation reset too? Book the service and tell Matt on the day. It is one appointment.' : 'Only book a reset by itself if you are not due a service.'}</p></div>
+      <p class="muted">${WHY[S.svc] || 'Only book a reset by itself if you are not due a service.'}</p></div>
     <div class="card"><h2>Where and when</h2><div class="chips"><button class="chip" aria-pressed="${S.loc==='all'}" data-loc="all">All</button>${locs.map(l => `<button class="chip" aria-pressed="${S.loc===l}" data-loc="${l}">${esc(LOC(l).name)}</button>`).join('')}</div>
       <p class="muted">Each day has one time: the next free spot.</p><div id="rows">${rows.map((r, i) => { const s = svcFor(r.session_date);
         return `<div class="slot"><span><b>${shortDate(r.session_date)} · <span class="t">${fmtTime(r.offered_min)}</span></b><span class="muted">${esc(LOC(r.location_id).name)}${s ? ' · ' + money(s.price) : ''}${(r.notes||[]).length ? ' · ' + esc(r.notes.join('; ')) : ''}</span></span>
@@ -752,20 +761,25 @@ function viewBook() {
   document.querySelectorAll('[data-svc]').forEach(b => b.onclick = () => { S.svc = b.dataset.svc; viewBook(); });
   document.querySelectorAll('[data-loc]').forEach(b => b.onclick = () => { S.loc = b.dataset.loc; viewBook(); });
   document.querySelectorAll('[data-pick]').forEach(b => b.onclick = () => confirmBook(rows[+b.dataset.pick], svcFor));
+  wireCancel();
 }
 
 function confirmBook(r, svcFor) {
   const s = svcFor(r.session_date), l = LOC(r.location_id);
   if (!s) return toast('That service is not available to you online. Text Matt on ' + MATT, true);
   const adv = S.svc === 'service' ? applyDateAdvice(eng(), r.session_date, S.avail.map(x => ({ session: { date: x.session_date }, offered: x.offered_min, row: x }))) : null;
+  const w = s.id === 'data' ? serviceWindow(eng(), r.session_date) : null, inWin = w && r.session_date >= w.opens && r.session_date <= w.closes;
+  const dataNote = s.id !== 'data' ? '' : `<div class="note"><b>Are you sure this is what you want?</b> This is a data reading only. It is not your monthly service, and you still need your service when it is due.
+    ${inWin && !live('service') ? `<br><b>Your monthly service is due around ${shortDate(w.due)}</b>, and a full service includes the data reading. <button class="btn brand" id="fullSvc">Book my monthly service instead</button>` : ''}</div>`;
   $('conf').innerHTML = `<div class="card" id="confCard"><h2>Confirm</h2><div class="big">${longDate(r.session_date)}</div><div class="big t" style="color:var(--brand)">${fmtTime(r.offered_min)}</div>
     <p><b>${esc(l.name)}</b><br>${mapLink(l)}</p><p>${esc(s.name)} · <b>${money(s.price)}</b> <span class="muted">to pay on the day</span></p>
-    ${adv ? `<div class="note"><b>Heads up.</b> ${esc(adv.message.replace(adv.applyDate, yDate(adv.applyDate)))}
+    ${dataNote}${adv ? `<div class="note"><b>Heads up.</b> ${esc(adv.message.replace(adv.applyDate, yDate(adv.applyDate)))}
       ${adv.suggestion ? `<button class="btn brand" id="later">Book ${shortDate(adv.suggestion.row.session_date)} at ${esc(LOC(adv.suggestion.row.location_id).name)} instead</button>` : '<p>No later days are open yet. They open 3 weeks ahead.</p>'}</div>` : ''}
-    <button class="btn" id="yes">${adv ? 'Book this day anyway' : 'Confirm booking'}</button><button class="btn ghost" id="no">Back</button></div>`;
+    <button class="btn" id="yes">${adv ? 'Book this day anyway' : s.id === 'data' ? 'Yes, book the data reading' : 'Confirm booking'}</button><button class="btn ghost" id="no">Back</button></div>`;
   $('confCard').scrollIntoView({ behavior: 'smooth', block: 'center' });
   $('no').onclick = () => { $('conf').innerHTML = ''; };
   if ($('later')) $('later').onclick = () => confirmBook(adv.suggestion.row, svcFor);
+  if ($('fullSvc')) $('fullSvc').onclick = () => { S.svc = 'service'; viewBook(); toast('Pick a day for your monthly service'); };
   $('yes').onclick = async () => {
     $('yes').disabled = true; $('yes').textContent = 'Booking…';
     const { error } = await db.rpc('book_next_slot', { p_location: r.location_id, p_date: r.session_date, p_service: s.id, p_expected_min: r.offered_min, p_details: {} });
@@ -848,17 +862,40 @@ async function shrink(file) {
   } catch (e) { return file; }
 }
 
+function priceReqNote() {
+  const r = S.me.price_request; if (!r) return '';
+  const asked = [r.wants_subsidy ? 'subsidy' : null, r.no_theft_protection ? 'no theft protection' : null].filter(Boolean).join(' and ') || 'a price change';
+  if (r.status === 'requested') return `<div class="note"><b>Request sent.</b> You asked for ${asked}. Waiting for Matt to confirm. Until then the price above applies.</div>`;
+  if (Date.now() - new Date(r.decided_at || r.created_at) > 30 * 86400000) return '';
+  return r.status === 'approved' ? `<div class="note ok"><b>Approved.</b> Matt confirmed your request for ${asked}.</div>`
+    : `<div class="note bad"><b>Not approved.</b> Matt could not confirm your request for ${asked}. Text him on ${MATT} if that seems wrong.</div>`;
+}
 function viewMe() {
   const d = customerDates(eng(), nzToday());
   $('view').innerHTML = `<h1>${esc([S.me.first_name, S.me.last_name].filter(Boolean).join(' '))}</h1>
     <div class="card"><div class="facts"><div class="fact"><div class="k">Mobile</div><div class="v">${esc(S.me.mobile || '—')}</div></div><div class="fact"><div class="k">Vehicle</div><div class="v">${esc(S.me.vehicle || '—')}</div></div></div>
       <p class="muted">Something wrong? Text Matt on <a href="sms:${MATT.replace(/ /g,'')}">${MATT}</a>.</p></div>
+    <div class="card" id="prCard"><h2>Your price</h2>${(() => { const m = monthlyOn(nzToday()); return m ? `<div class="slot"><span>${esc(m.name)}</span><b class="t">${money(m.price)}</b></div>` : ''; })()}
+      ${priceReqNote()}
+      ${S.me.price_request?.status === 'requested' ? '' : `<p class="muted">If your price should be different, tick what applies. Matt checks it and confirms. Your price stays the same until he does.</p>
+      <form id="prF">${d.subsidyActive ? '' : '<label class="chk"><input type="checkbox" id="prSub"> I have the subsidy</label>'}
+        ${S.me.theft_protection === false ? '' : '<label class="chk"><input type="checkbox" id="prTp"> I don\'t have theft protection</label>'}
+        <label class="f" for="prNote">Anything Matt should know (optional)</label><input id="prNote" maxlength="300">
+        <div id="prErr" class="note bad" hidden></div><button class="btn brand">Send request</button></form>`}</div>
     <div class="card"><h2>Apply date</h2><p>Currently <b>${yDate(d.exitEligible)}</b>${S.me.apply_date ? ' (the date NZTA gave you)' : ' (12 months after install)'}.</p>
       <p class="muted">If you applied and NZTA declined it, they gave you a new date. Enter it here so your bookings line up with it.</p>
       <form id="adF"><label class="f" for="ad">New date from NZTA</label><input id="ad" type="date" value="${esc(S.me.apply_date || '')}"><div id="adErr" class="note bad" hidden></div><button class="btn brand">Save date</button></form></div>
     <div class="card"><h2>Keep this handy</h2><p class="muted">In your browser menu choose <b>Add to Home screen</b> to open this like an app.</p><button class="btn ghost" id="out">Sign out</button><p class="muted" style="text-align:center"><a href="../privacy/">Privacy policy</a></p></div>
-    <p class="muted" style="text-align:center;font-size:.75rem">build 2026-11-16 07:03 UTC</p>`;
+    <p class="muted" style="text-align:center;font-size:.75rem">build 2026-11-16 07:23 UTC</p>`;
   $('out').onclick = signOut;
+  if ($('prF')) $('prF').onsubmit = async ev => {
+    ev.preventDefault();
+    const p = { wantsSubsidy: !!$('prSub')?.checked, noTheftProtection: !!$('prTp')?.checked, note: $('prNote').value.trim() };
+    if (!p.wantsSubsidy && !p.noTheftProtection && p.note.length < 3) { $('prErr').textContent = 'Tick what applies, or tell Matt what should change.'; $('prErr').hidden = false; return; }
+    const { error } = await db.rpc('request_price', { p });
+    if (error) return toast(errMsg(error), true);
+    reload('Request sent. Matt will confirm it.');
+  };
   $('adF').onsubmit = async ev => {
     ev.preventDefault();
     const r = setApplyDate(eng(), $('ad').value, { today: nzToday() });
