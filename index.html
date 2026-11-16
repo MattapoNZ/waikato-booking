@@ -633,7 +633,7 @@ function renderLogin(msg) {
     <label class="label" for="pw">Password</label><input id="pw" type="password" autocomplete="current-password" required>
     <button class="btn brand" id="loginBtn">Log in</button>
     <div id="loginMsg" class="alert" hidden></div>
-    <div class="empty" style="font-size:.75rem;margin-top:10px">build 2026-11-16 08:30 UTC</div></form>`;
+    <div class="empty" style="font-size:.75rem;margin-top:10px">build 2026-11-16 08:35 UTC</div></form>`;
   const btn = $('loginBtn'), box = $('loginMsg');
   const fail = m => { btn.disabled = false; btn.textContent = 'Log in'; box.textContent = m; box.hidden = false; };
   $('loginForm').onsubmit = async e => {
@@ -773,8 +773,8 @@ function renderSide() {
   const fl = floating(b), sRow = S.sessions.find(x => x.session_date === b.session_date && x.location_id === b.location_id);
   const when = fl ? '≈ ' + fmtTime((sRow && estFor(sRow).get(b.id)) ?? b.start_min) : fmtTime(b.start_min);
   el.innerHTML = `<div class="label">${esc(LOC(b.location_id))} · ${longDate(b.session_date)} · <span class="t">${when}</span></div>
-    <h2 style="font-size:1.5rem">${esc(fullName(c))}</h2><div class="empty">${esc(c.mobile || '')}</div>
-    <div style="margin:8px 0"><button class="chip" id="edC">Edit details</button></div>
+    <h2 style="font-size:1.5rem;cursor:pointer" id="edN" title="Open customer details">${esc(fullName(c))} <span style="font-size:1rem;color:var(--brand)">✎</span></h2><div class="empty">${esc(c.mobile || '')}</div>
+    <div style="margin:8px 0"><button class="btn ghost" id="edC" style="width:100%">Open and edit customer details</button></div>
     ${priceReqBox(c)}
     <div class="facts"><div class="fact"><div class="label">Installed</div><div class="v">${yDate(c.install_date)}</div></div>
       <div class="fact"><div class="label">Apply date</div><div class="v">${yDate(d.exitEligible)}${c.apply_date_set_by==='customer'?'<br><span class="flag" style="color:var(--warn)">NZTA date, set by customer</span>':''}</div></div>
@@ -801,7 +801,7 @@ function renderSide() {
         <div class="grid2"><button class="btn ghost" data-st="arrived">Arrived</button><button class="btn ghost" data-st="no_show">No-show</button></div>
         <div style="margin-top:6px"><button class="btn ghost" data-st="cancelled" style="width:100%">Cancel booking</button></div>`}`;
   const backToRun = async () => { await loadBookings(true); renderRun(); };
-  $('edC').onclick = () => { editCustomer(c, 'side', backToRun); showSide(); };
+  $('edC').onclick = $('edN').onclick = () => { editCustomer(c, 'side', backToRun); showSide(); };
   wirePriceReq(el, backToRun);
   el.querySelectorAll('[data-x]').forEach(x => x.onclick = () => { S.extras.push(x.dataset.x); renderSide(); });
   const af = $('addFee'); if (af) af.onclick = () => { const v = $('moreFee').value; if (v) { S.extras.push(v); renderSide(); } };
