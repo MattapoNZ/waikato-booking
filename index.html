@@ -633,7 +633,7 @@ function renderLogin(msg) {
     <label class="label" for="pw">Password</label><input id="pw" type="password" autocomplete="current-password" required>
     <button class="btn brand" id="loginBtn">Log in</button>
     <div id="loginMsg" class="alert" hidden></div>
-    <div class="empty" style="font-size:.75rem;margin-top:10px">build 2026-11-16 08:35 UTC</div></form>`;
+    <div class="empty" style="font-size:.75rem;margin-top:10px">build 2026-11-16 08:59 UTC</div></form>`;
   const btn = $('loginBtn'), box = $('loginMsg');
   const fail = m => { btn.disabled = false; btn.textContent = 'Log in'; box.textContent = m; box.hidden = false; };
   $('loginForm').onsubmit = async e => {
@@ -666,6 +666,9 @@ async function loadBookings(noLock) {
   let pays = [];
   if (ids.length) { const r = await db.from('payments').select('*').in('booking_id', ids); pays = r.data || []; }
   data.forEach(b => b.payments = pays.filter(p => p.booking_id === b.id));
+  const cids = [...new Set(data.map(b => b.customer_id))]; let bills = [];
+  if (cids.length) { const r = await db.from('bills').select('id,customer_id,booking_id,description,amount_cents,status,sent_via,created_at').in('customer_id', cids).neq('status', 'cancelled'); bills = r.data || []; }
+  data.forEach(b => { b.bill = bills.find(x => x.booking_id === b.id); b.owing = bills.filter(x => x.customer_id === b.customer_id && x.status === 'sent' && x.booking_id !== b.id); });
   S.bookings = data;
   await loadPriceReqs();
   // On the day itself, approved removals take their solid time (once, then reload).
@@ -756,6 +759,35 @@ function renderRun() {
   renderSide();
 }
 
+// ---------- bills the customer can pay online (Stripe) ----------
+const NO_SHOW_FEE = 40;
+const billDay = t => new Date(t).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', timeZone: 'Pacific/Auckland' });
+function billBox(b, paid) {
+  const via = x => x.sent_via === 'sms' ? 'text' : 'email';
+  let h = (b.owing || []).map(x => `<div class="alert" style="background:var(--warn-soft);color:var(--ink)">Owes ${money(x.amount_cents / 100)} — ${esc(x.description)}. Bill sent ${billDay(x.created_at)}, not paid yet.
+      <div style="margin-top:6px"><button class="chip" data-bcancel="${x.id}">Paid here / cancel bill</button></div></div>`).join('');
+  if (b.bill && b.bill.status === 'sent') h += `<div class="alert" style="background:var(--warn-soft);color:var(--ink)">${money(b.bill.amount_cents / 100)} bill sent by ${via(b.bill)} ${billDay(b.bill.created_at)} — not paid yet.
+      <div style="display:flex;gap:6px;margin-top:6px"><button class="chip" id="nsBill">Send again</button><button class="chip" data-bcancel="${b.bill.id}">Cancel bill</button></div></div>`;
+  else if (b.status === 'no_show' && !paid) h += `<div style="margin-top:8px"><button class="btn" id="nsBill" style="width:100%">Send ${money(NO_SHOW_FEE)} no-show bill</button>
+      <div class="empty">Emails them a link to pay online by card (text if no email).</div></div>`;
+  return h;
+}
+function wireBills(el, b, after) {
+  const ns = $('nsBill');
+  if (ns) ns.onclick = async () => {
+    ns.disabled = true;
+    const { data, error } = await db.rpc('send_bill', { p_customer: b.customer_id, p_booking: b.id, p_amount_cents: NO_SHOW_FEE * 100, p_description: 'No-show fee, ' + longDate(b.session_date) });
+    if (error) { ns.disabled = false; return toast(errMsg(error), true); }
+    toast('Bill sent by ' + (data?.via === 'sms' ? 'text' : 'email')); after();
+  };
+  el.querySelectorAll('[data-bcancel]').forEach(x => x.onclick = async () => {
+    x.disabled = true;
+    const { error } = await db.rpc('cancel_bill', { p_bill: x.dataset.bcancel });
+    if (error) { x.disabled = false; return toast(errMsg(error), true); }
+    toast('Bill cancelled — they can no longer pay it online'); after();
+  });
+}
+
 function renderSide() {
   const el = $('side'); const b = S.bookings.find(x => x.id === S.sel);
   if (!b) {
@@ -781,6 +813,7 @@ function renderSide() {
       <div class="fact"><div class="label">Subsidy</div><div class="v">${d.subsidyActive ? (d.subsidyOverdue ? 'Active<br><span class="flag" style="color:var(--warn)">15 months passed ' + yDate(d.subsidyEnds) + ' — on until Dräger emails</span>' : d.subsidyEnds ? 'Until ' + yDate(d.subsidyEnds) : 'Active') : 'None'}</div></div>
       <div class="fact"><div class="label">Theft protection</div><div class="v">${c.theft_protection ? 'Yes' : 'No'}</div></div></div>
     ${flag ? `<div class="alert">⚑ ${esc(flag)}</div>` : ''}
+    ${billBox(b, paid)}
     ${fl && !b.approved_at ? `<div class="alert" style="background:var(--warn-soft);color:var(--ink)">Placeholder only — no time is held. It moves later if a service books that time.</div>
       <div class="grid2"><button class="btn brand" id="apRem">Approve removal</button><button class="btn ghost" data-st="cancelled">Decline</button></div>` : ''}
     ${fl && b.approved_at ? `<div class="alert" style="background:var(--warn-soft);color:var(--ink)">Approved. The time is still approximate and locks in on the morning of the session.</div>
@@ -794,15 +827,16 @@ function renderSide() {
         <optgroup label="Damage">${services.filter(x=>x.group==='damage').map(x=>`<option value="${x.id}">${esc(x.name)} — ${money(x.price)}</option>`).join('')}</optgroup></select><button class="btn ghost" id="addFee">Add</button></div>`}
       <div class="co-total"><span>Total</span><span class="t">${money(paid ? b.payments.reduce((a,p)=>a+p.amount_cents,0)/100 : total)}</span></div>
       <div class="empty">Includes GST ${money((paid ? b.payments.reduce((a,p)=>a+p.amount_cents,0)/100 : total) * 3 / 23)}</div></div>
-    ${paid ? `<div class="alert" style="background:var(--ok-soft);color:var(--ok)">Paid by ${esc(b.payments.map(p => p.method.replace(/_/g,' ')).join(', '))}.</div>
+    ${paid ? `<div class="alert" style="background:var(--ok-soft);color:var(--ok)">Paid by ${esc(b.payments.map(p => p.method === 'online' ? 'card online (Stripe)' : p.method === 'card_terminal' ? 'EFTPOS' : p.method.replace(/_/g,' ')).join(', '))}.</div>
       <div id="undoBox" style="margin-top:8px"><button class="btn ghost" id="undoPay" style="width:100%">Cancel sale and redo</button></div>`
       : `<div class="label" style="margin-top:12px">Take payment</div><div class="grid2">
-        ${[['card_terminal','Card terminal'],['tap_to_pay','Tap to Pay'],['cash','Cash'],['on_account','On account']].map(([v,l],i)=>`<button class="btn ${i?'ghost':''}" data-pay="${v}">${l}</button>`).join('')}</div>
+        ${[['card_terminal','EFTPOS'],['cash','Cash'],['on_account','On account']].map(([v,l],i)=>`<button class="btn ${i?'ghost':''}" data-pay="${v}">${l}</button>`).join('')}</div>
         <div class="grid2"><button class="btn ghost" data-st="arrived">Arrived</button><button class="btn ghost" data-st="no_show">No-show</button></div>
         <div style="margin-top:6px"><button class="btn ghost" data-st="cancelled" style="width:100%">Cancel booking</button></div>`}`;
   const backToRun = async () => { await loadBookings(true); renderRun(); };
   $('edC').onclick = $('edN').onclick = () => { editCustomer(c, 'side', backToRun); showSide(); };
   wirePriceReq(el, backToRun);
+  wireBills(el, b, backToRun);
   el.querySelectorAll('[data-x]').forEach(x => x.onclick = () => { S.extras.push(x.dataset.x); renderSide(); });
   const af = $('addFee'); if (af) af.onclick = () => { const v = $('moreFee').value; if (v) { S.extras.push(v); renderSide(); } };
   const cx = $('clrX'); if (cx) cx.onclick = () => { S.extras = []; renderSide(); };
