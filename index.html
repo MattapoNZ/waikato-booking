@@ -651,7 +651,7 @@ function renderLogin(msg) {
     <label class="label" for="pw">Password</label><input id="pw" type="password" autocomplete="current-password" required>
     <button class="btn brand" id="loginBtn">Log in</button>
     <div id="loginMsg" class="alert" hidden></div>
-    <div class="empty" style="font-size:.75rem;margin-top:10px">build 2026-11-16 21:28 UTC</div></form>`;
+    <div class="empty" style="font-size:.75rem;margin-top:10px">build 2026-11-16 23:20 UTC</div></form>`;
   const btn = $('loginBtn'), box = $('loginMsg');
   const fail = m => { btn.disabled = false; btn.textContent = 'Log in'; box.textContent = m; box.hidden = false; };
   $('loginForm').onsubmit = async e => {
@@ -828,9 +828,10 @@ function renderSide() {
     <div style="margin:8px 0"><button class="btn ghost" id="edC" style="width:100%">Open and edit customer details</button></div>
     ${priceReqBox(c)}
     <div class="facts"><div class="fact"><div class="label">Installed</div><div class="v">${yDate(c.install_date)}</div></div>
-      <div class="fact"><div class="label">Apply date</div><div class="v">${yDate(d.exitEligible)}${c.apply_date_set_by==='customer'?'<br><span class="flag" style="color:var(--warn)">NZTA date, set by customer</span>':''}</div></div>
+      <div class="fact"><div class="label" style="color:var(--bad)">Service date</div><div class="v" style="color:var(--bad)">${(w => w ? yDate(w.due) : '—')(serviceWindow(eng(c), b.session_date))}</div></div>
       <div class="fact"><div class="label">Subsidy</div><div class="v">${d.subsidyActive ? (d.subsidyOverdue ? 'Active<br><span class="flag" style="color:var(--warn)">15 months passed ' + yDate(d.subsidyEnds) + ' — on until Dräger emails</span>' : d.subsidyEnds ? 'Until ' + yDate(d.subsidyEnds) : 'Active') : 'None'}</div></div>
-      <div class="fact"><div class="label">Theft protection</div><div class="v">${c.theft_protection ? 'Yes' : 'No'}</div></div></div>
+      <div class="fact"><div class="label">Theft protection</div><div class="v">${c.theft_protection ? 'Yes' : 'No'}</div></div>
+      <div class="fact"><div class="label">Apply date</div><div class="v">${yDate(d.exitEligible)}${c.apply_date_set_by==='customer'?'<br><span class="flag" style="color:var(--warn)">NZTA date, set by customer</span>':''}</div></div></div>
     ${flag ? `<div class="alert">⚑ ${esc(flag)}</div>` : ''}
     ${billBox(b, paid)}
     ${fl && !b.approved_at ? `<div class="alert" style="background:var(--warn-soft);color:var(--ink)">Placeholder only — no time is held. It moves later if a service books that time.</div>
