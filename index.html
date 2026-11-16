@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Waikato Interlocks — Run sheet</title>
 <meta name="theme-color" content="#1f4d5c">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://yimjmbarxnmakpswbrhz.supabase.co; connect-src 'self' https://yimjmbarxnmakpswbrhz.supabase.co wss://yimjmbarxnmakpswbrhz.supabase.co; manifest-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'">
+<meta name="referrer" content="strict-origin">
+<script>if (top !== self) { try { top.location = self.location.href; } catch (e) { document.documentElement.hidden = true; } }</script>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
@@ -92,7 +95,7 @@ tr.free td{color:var(--muted)}
 <div id="app"></div>
 <div id="toast" class="toast" hidden></div>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js" integrity="sha384-0w2KAL2YHP6wKOkUDzkCDGgVvfmHnj02DHeQ6XcHOgTfFsGyonKOpShMH1x6nk9o" crossorigin="anonymous"></script>
 <script>
 // Waikato Interlocks booking engine — sequential slot logic.
 // No dependencies. All dates are NZ-local "YYYY-MM-DD" strings and all times are
@@ -618,7 +621,7 @@ async function start() {
     const { data } = await withTimeout(db.auth.getSession(), 15000, 'Checking login');
     // The site's front door is shared with customers: anyone who is not staff goes to the booking app.
     let wasStaff = false; try { wasStaff = localStorage.getItem('wi_staff') === '1'; } catch (e) {}
-    const wantStaff = wasStaff || /[?&]staff\b/.test(location.search) || location.protocol === 'file:' || matchMedia('(display-mode: standalone)').matches;
+    const wantStaff = wasStaff || /[?&](staff\b|code=|state=)/.test(location.search) || location.protocol === 'file:' || matchMedia('(display-mode: standalone)').matches;
     if (!data.session) return wantStaff ? renderLogin() : location.replace('book/');
     const { data: me, error } = await withTimeout(db.from('staff').select('name').limit(1), 15000, 'Staff check');
     if (error) return renderLogin('Staff check failed: ' + errMsg(error));
@@ -628,6 +631,7 @@ async function start() {
     S.me = me[0].name;
     await withTimeout(loadSessions(), 20000, 'Loading sessions');
     render();
+    finishGcalConnect();
   } catch (e) { renderLogin(errMsg(e)); }
 }
 function renderLogin(msg) {
@@ -638,7 +642,7 @@ function renderLogin(msg) {
     <label class="label" for="pw">Password</label><input id="pw" type="password" autocomplete="current-password" required>
     <button class="btn brand" id="loginBtn">Log in</button>
     <div id="loginMsg" class="alert" hidden></div>
-    <div class="empty" style="font-size:.75rem;margin-top:10px">build 2026-11-16 09:39 UTC</div></form>`;
+    <div class="empty" style="font-size:.75rem;margin-top:10px">build 2026-11-16 18:21 UTC</div></form>`;
   const btn = $('loginBtn'), box = $('loginMsg');
   const fail = m => { btn.disabled = false; btn.textContent = 'Log in'; box.textContent = m; box.hidden = false; };
   $('loginForm').onsubmit = async e => {
@@ -901,10 +905,42 @@ function renderMessage(locId) {
     };
   };
 }
+// ---------- Google Calendar: bookings copied to the business calendar within about a minute ----------
+async function renderGcal() {
+  const box = $('gcBox'); if (!box) return;
+  const { data: g, error } = await db.rpc('gcal_status');
+  if (error) { box.textContent = /gcal_status/.test(errMsg(error)) ? 'Not set up yet.' : errMsg(error); return; }
+  const when = t => t ? new Date(t).toLocaleString('en-NZ', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', timeZone: 'Pacific/Auckland' }) : 'never';
+  if (!g.ready) { box.innerHTML = 'Not set up yet. The Google details (google_client_id and google_client_secret) need adding to the Supabase Vault first.'; return; }
+  if (!g.connected) {
+    box.innerHTML = `<p>Not connected. Connecting copies every booking, change and cancellation to your Google calendar within about a minute.</p><button class="btn" id="gcGo">Connect Google Calendar</button>
+      <p class="empty" style="margin-top:6px">Sign in as the business Google account when Google asks.</p>`;
+    $('gcGo').onclick = async () => { $('gcGo').disabled = true; const r = await db.rpc('gcal_auth_url'); if (r.error) { $('gcGo').disabled = false; return toast(errMsg(r.error), true); }
+      location.href = r.data; };
+    return;
+  }
+  box.innerHTML = `<p><b>Connected.</b> Last copied ${when(g.last_sync_at)}${g.waiting ? ' · ' + g.waiting + ' waiting' : ''}${g.failed ? ' · <span style="color:var(--bad)">' + g.failed + ' could not be copied</span>' : ''}.</p>
+    ${g.last_error ? `<div class="alert">${esc(g.last_error)}</div>` : ''}<button class="chip" id="gcOff">Disconnect</button>`;
+  $('gcOff').onclick = async () => {
+    if ($('gcOff').dataset.sure !== '1') { $('gcOff').dataset.sure = '1'; $('gcOff').textContent = 'Tap again to disconnect'; return; }
+    const r = await db.rpc('gcal_disconnect'); if (r.error) return toast(errMsg(r.error), true); toast('Disconnected. Events already in Google stay there.'); renderGcal();
+  };
+}
+// Coming back from Google's approval screen: hand the one-time code to the database, then tidy the address.
+async function finishGcalConnect() {
+  const q = new URLSearchParams(location.search), code = q.get('code'), state = q.get('state'), gerr = q.get('error');
+  if (!code && !gerr) return;
+  history.replaceState(null, '', location.pathname);
+  if (gerr) return toast('Google Calendar was not connected: ' + gerr, true);
+  const { error } = await db.rpc('gcal_connect', { p_code: code, p_state: state });
+  toast(error ? errMsg(error) : 'Google Calendar connected. Bookings will appear there shortly.', !!error);
+}
 async function renderTexts() {
   $('body').innerHTML = `<div class="panel"><h2>Messages sent</h2>
     <form id="teF" style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0"><input id="teTo" type="email" placeholder="Send a test email to…" style="flex:1;min-width:200px" required><button class="btn ghost">Send test email</button></form>
-    <div class="list" id="tlist"><div class="empty">Loading…</div></div></div>`;
+    <div class="list" id="tlist"><div class="empty">Loading…</div></div></div>
+    <div class="panel" style="margin-top:12px"><h2>Google Calendar</h2><div id="gcBox" class="empty">Checking…</div></div>`;
+  renderGcal();
   $('teF').onsubmit = async e => { e.preventDefault(); const { error } = await db.rpc('send_test_email', { p_to: $('teTo').value.trim() }); if (error) return toast(errMsg(error), true); toast('Test email sent'); renderTexts(); };
   const [sm, em] = await Promise.all([
     db.from('sms_log').select('*, customer:customers(first_name,last_name)').order('id', { ascending: false }).limit(60),
