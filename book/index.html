@@ -313,7 +313,7 @@ function addMonths(s, n) {
 
 // Subsidy runs 15 months from install, or from the later date they obtained it (subsidyStart).
 function customerDates(c, today) {
-  const subStart = c.subsidised ? (c.subsidyStart && c.subsidyStart > c.installDate ? c.subsidyStart : c.installDate) : null;
+  const subStart = c.subsidised ? (c.subsidyStart || c.installDate) : null;   // the date on the NZTA subsidy letter if we have it, else the install date
   const subsidyEnds = subStart ? addMonths(subStart, c.subsidyMonths ?? 15) : null;
   const standardExit = c.installDate ? addMonths(c.installDate, 12) : null;
   return {
@@ -328,11 +328,14 @@ function customerDates(c, today) {
   };
 }
 
-// Monthly service window = install day-of-month each month, ±7 days.
+// Monthly service window = rollover day-of-month each month, ±7 days.
+// The rollover date is the install date unless it was changed (e.g. a second device was fitted later).
 function serviceWindow(c, onOrAfter) {
-  if (!c.installDate) return null;
-  for (let i = 1; i < 60; i++) {
-    const due = addMonths(c.installDate, i);
+  const anchor = c.rolloverDate || c.installDate;
+  if (!anchor) return null;
+  for (let i = 0; i < 600; i++) {
+    const due = addMonths(anchor, i);
+    if (i === 0 && !c.rolloverDate) continue;   // install day itself is not a service
     if (addDays(due, 7) >= onOrAfter) return { due, opens: addDays(due, -7), closes: addDays(due, 7) };
   }
   return null;
@@ -524,7 +527,7 @@ const nzPhone = v => { const d = String(v).replace(/\D/g, '').replace(/^(64|0)/,
 
 // ---------- state ----------
 const S = { tab: 'home', me: null, user: null, bookings: [], avail: [], rAvail: [], rTimes: [], requests: [], svc: null, loc: 'all', confirm: null, rPick: null };
-const eng = () => ({ id: S.me.id, installDate: S.me.install_date, subsidised: S.me.subsidised, subsidyStart: S.me.subsidy_start, subsidyMonths: S.me.subsidy_months ?? 15,
+const eng = () => ({ id: S.me.id, installDate: S.me.install_date, rolloverDate: S.me.rollover_date, subsidised: S.me.subsidised, subsidyStart: S.me.subsidy_start, subsidyMonths: S.me.subsidy_months ?? 15,
   theftProtection: S.me.theft_protection, applyDate: S.me.apply_date, applyDateSetBy: S.me.apply_date_set_by, blockedServiceIds: S.me.blocked || [] });
 const live = (k, data = false) => S.bookings.find(b => b.kind === k && (b.service_id === 'data') === data && ['pencilled','confirmed'].includes(b.status) && b.session_date >= nzToday());
 const monthlyOn = d => allowedServices(eng(), services, d).find(s => s.group === 'service');
@@ -893,7 +896,7 @@ function viewMe() {
       <p class="muted">If you applied and NZTA declined it, they gave you a new date. Enter it here so your bookings line up with it.</p>
       <form id="adF"><label class="f" for="ad">New date from NZTA</label><input id="ad" type="date" value="${esc(S.me.apply_date || '')}"><div id="adErr" class="note bad" hidden></div><button class="btn brand">Save date</button></form></div>
     <div class="card"><h2>Keep this handy</h2><p class="muted">In your browser menu choose <b>Add to Home screen</b> to open this like an app.</p><button class="btn ghost" id="out">Sign out</button><p class="muted" style="text-align:center"><a href="../privacy/">Privacy policy</a></p></div>
-    <p class="muted" style="text-align:center;font-size:.75rem">build 2026-11-16 08:00 UTC</p>`;
+    <p class="muted" style="text-align:center;font-size:.75rem">build 2026-11-16 08:23 UTC</p>`;
   $('out').onclick = signOut;
   if ($('prF')) $('prF').onsubmit = async ev => {
     ev.preventDefault();
