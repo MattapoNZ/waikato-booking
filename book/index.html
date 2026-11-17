@@ -563,7 +563,8 @@ const engV = v => !v ? eng() : { ...eng(), installDate: v.install_date, rollover
   theftProtection: v.theft_protection, applyDate: customerDates(eng(), null).exitEligible,
   dueOverrides: (S.me.due_overrides || []).filter(o => o.vehicle_id === v.id) };
 // shown on Home until the date passes
-const NOTICES = [{ until: '2027-01-26', html: '<b>School holiday hours, 22 December to 26 January.</b> Morrinsville moves to Tuesday mornings, and Cambridge on Tuesdays starts a little later. Between Christmas and New Year there is one day, Wednesday 30 December, by request only. Check the time when you book.' }];
+const NOTICES = [{ until: '2026-12-21', html: '<b>Morrinsville is moving to Tuesday mornings.</b> From 24 November it runs 7:30 to 8:10am at the Rugby Club. This may become a permanent change.' },
+  { until: '2027-01-26', html: '<b>School holiday hours, 22 December to 26 January.</b> Morrinsville runs 9:00 to 9:20am on Tuesdays, and Cambridge on Tuesdays starts a little later. Between Christmas and New Year there is one day, Wednesday 30 December, by request only. Check the time when you book.' }];
 const vBookings = v => S.bookings.filter(b => (b.vehicle_id || '') === (v ? v.id : ''));
 // vid: undefined = any vehicle; '' = first vehicle; otherwise that vehicle
 const live = (k, data = false, vid) => S.bookings.find(b => b.kind === k && (b.service_id === 'data') === data && ['pencilled','confirmed'].includes(b.status) && b.session_date >= nzToday()
@@ -1072,7 +1073,7 @@ function viewMe() {
       <details style="margin-top:10px"><summary class="muted">NZTA gave me an actual date to apply instead</summary>
       <form id="adF"><label class="f" for="ad">Date you can next apply</label><input id="ad" type="date" value="${esc(S.me.apply_date || '')}"><div id="adErr" class="note bad" hidden></div><button class="btn">Save date</button></form></details></div>
     <div class="card"><h2>Keep this handy</h2><p class="muted">In your browser menu choose <b>Add to Home screen</b> to open this like an app.</p><button class="btn ghost" id="out">Sign out</button><p class="muted" style="text-align:center"><a href="../privacy/">Privacy policy</a></p></div>
-    <p class="muted" style="text-align:center;font-size:.75rem">build 2026-11-17 01:38 UTC</p>`;
+    <p class="muted" style="text-align:center;font-size:.75rem">build 2026-11-17 02:03 UTC</p>`;
   $('out').onclick = signOut;
   if ($('prF')) $('prF').onsubmit = async ev => {
     ev.preventDefault();
