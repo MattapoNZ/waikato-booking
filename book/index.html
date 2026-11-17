@@ -35,6 +35,7 @@ input,select,textarea{font:inherit;color:var(--ink);background:var(--panel);bord
 label.f{display:block;font-size:.8rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin:12px 0 4px}
 details.faq{border-top:1px solid var(--line);padding:10px 0}details.faq summary{cursor:pointer;font-weight:600}details.faq p{margin:8px 0 0}
 .stars{display:flex;gap:6px;margin:8px 0}.star{font-size:2rem;line-height:1;background:none;border:0;color:var(--line);cursor:pointer;padding:4px}.star.on{color:#f5a623}
+.tr{border-top:1px solid var(--line);padding:8px 0}.tr .chk{margin:0}.tr details.tr-more{border:0;padding:2px 0 0 30px}.tr-more ul{margin:6px 0 0;padding-left:18px}.tr-more summary{font-weight:400;color:var(--brand);font-size:.9rem}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;margin-top:12px}
 .btn{display:block;width:100%;border:0;border-radius:10px;padding:13px 14px;font-weight:700;background:var(--accent);color:var(--accent-ink);text-align:center;margin-top:10px}
 .btn.brand{background:var(--brand);color:var(--panel)} .btn.ghost{background:transparent;border:1px solid var(--line);color:var(--ink);font-weight:600}
@@ -644,6 +645,7 @@ function renderEnquiry() {
       <div class="facts">${f('enFn', 'First name', 'autocomplete="given-name" required')}${f('enLn', 'Last name', 'autocomplete="family-name" required')}</div>
       ${f('enMn', 'Middle names (as on your licence)', 'autocomplete="additional-name"')}
       ${f('enDob', 'Date of birth', 'type="date" autocomplete="bday"')}
+      ${sel('enGe', 'Gender (Dräger\'s form asks)', [['Male', 'Male'], ['Female', 'Female'], ['Other', 'Other']])}
       ${f('enMo', 'Mobile', 'type="tel" inputmode="tel" autocomplete="tel" placeholder="021 123 4567" required')}
       ${f('enEm', 'Email', 'type="email" autocomplete="email" placeholder="So we can send reminders"')}
       ${f('enStr', 'Street address', 'autocomplete="address-line1"')}
@@ -652,6 +654,10 @@ function renderEnquiry() {
       <div class="facts">${f('enRe', 'Plate', 'maxlength="6" autocapitalize="characters"')}${f('enYr', 'Year', 'inputmode="numeric" maxlength="4"')}${f('enMk', 'Make', 'placeholder="Toyota"')}${f('enMd', 'Model', 'placeholder="Hilux"')}
         ${sel('enSt', 'Start', [['key', 'Key'], ['push', 'Push button']])}
         ${sel('enFu', 'Fuel', [['petrol', 'Petrol'], ['diesel', 'Diesel'], ['hybrid', 'Hybrid'], ['ev', 'Electric']])}</div>
+      ${f('enVin', 'VIN (optional, on the registration label or papers)', 'maxlength="17" autocapitalize="characters"')}
+      ${sel('enOw', 'Are you the registered owner of this vehicle?', [['yes', 'Yes'], ['no', 'No']])}
+      <div id="enOwNo" hidden>${f('enOc', 'Whose is it, and do they agree to the interlock being fitted?', 'maxlength="120" placeholder="e.g. my partner, yes"')}
+        <p class="muted">Dräger needs the owner's consent to fit it.</p></div>
       ${sel('enTp', 'Do you want theft protection? (a small monthly extra from Dräger that covers theft or vandalism)', [['yes', 'Yes'], ['no', 'No'], ['unsure', 'Not sure']])}</div>
     <div class="card"><h2>Your licence</h2>
       ${sel('enHl', 'Do you have your alcohol interlock licence yet?', [['yes', 'Yes, I have it'], ['no', 'Not yet']])}
@@ -673,9 +679,9 @@ function renderEnquiry() {
   const sync = () => {
     const hl = $('enHl').value, su = $('enSu').value;
     $('enYes').hidden = hl !== 'yes'; $('enNo2').hidden = hl !== 'no';
-    $('enSuY').hidden = su !== 'yes'; $('enCsc').hidden = !(su === 'no' || su === 'unsure' || hl === 'no');
+    $('enSuY').hidden = su !== 'yes'; $('enOwNo').hidden = $('enOw').value !== 'no'; $('enCsc').hidden = !(su === 'no' || su === 'unsure' || hl === 'no');
   };
-  $('enHl').onchange = sync; $('enSu').onchange = sync;
+  $('enHl').onchange = sync; $('enSu').onchange = sync; $('enOw').onchange = sync;
   $('enF').onsubmit = async ev => {
     ev.preventDefault(); const v = id => $(id).value.trim();
     const fail = m => { $('enGo').disabled = false; $('enGo').textContent = 'Send my details'; $('enErr').textContent = m; $('enErr').hidden = false; };
@@ -687,7 +693,7 @@ function renderEnquiry() {
     } catch (e) { return fail(errMsg(e)); }
     $('enGo').textContent = 'Sending…';
     const town = [v('enSub'), v('enCity')].filter(Boolean).join(', ');
-    const priv = { middleNames: v('enMn'), dob: v('enDob'), street: v('enStr'), suburb: v('enSub'), city: v('enCity'), postcode: v('enPc') };
+    const priv = { middleNames: v('enMn'), dob: v('enDob'), gender: v('enGe'), vin: v('enVin'), owner: v('enOw'), ownerConsent: v('enOw') === 'no' ? v('enOc') : '', street: v('enStr'), suburb: v('enSub'), city: v('enCity'), postcode: v('enPc') };
     if (v('enHl') === 'yes') { priv.licenceNumber = v('enLn2'); priv.licenceVersion = v('enLv'); }
     const { error } = await db.rpc('submit_enquiry', { p: { firstName: v('enFn'), lastName: v('enLn'), mobile: v('enMo'), email: v('enEm'), town, area: v('enAr'),
       rego: v('enRe'), year: v('enYr'), make: v('enMk'), model: v('enMd'), start: v('enSt'), fuel: v('enFu'), theftProtection: v('enTp'), installDate: v('enId'),
@@ -865,12 +871,67 @@ const FAQ = [
     ['Can I have it removed early?', 'It can be done, but your programme stays unfinished and you may not be able to drive. Talk to NZTA or Dräger before you decide.'],
     ['Can I buy the interlock when I finish?', 'Dräger may be able to sell you one. Call them on 0800 372 437.']]]];
 
-function helpHtml(signedIn) {
+// ---------- training checklist: Draeger Training Acknowledgement (DSP-ITL-609) in plain words ----------
+const FEES_URL = DOCS_BASE + '337f705c-10b3-471b-ba2a-936e879e5fb9/DSP-ITL-605-Rev4-Schedule-Fees-and-Charges-NZ.pdf?ver=1794822627649';
+const GUIDE_URL = DOCS_BASE + '43f397cf-0148-4c8a-af37-cfcc146c3b7f/DSP-ITL-607-Rev3-User-Guide-NZ.pdf?ver=1794822627648';
+const TRAINING = [
+  ['use', 'I will use the interlock the way Dräger\'s instructions say.', `Keep the quick guide in the vehicle. The <a href="${GUIDE_URL}" target="_blank" rel="noopener">full user guide</a> covers every screen message.`],
+  ['shown', 'I have been shown how to use it and I\'m confident I can.', `Watch the <a href="${VIDEO}" target="_blank" rel="noopener">training video</a> before your install. Matt goes through it with you on the day too. Ask about anything you're unsure of.`],
+  ['agreement', 'I have read and agree to Dräger\'s Client Agreement.', 'You sign it at the install. The main points:<ul><li>Fees are paid before each job.</li><li>Bring the vehicle in every 30 days.</li><li>Your data goes to NZTA, Police and Dräger.</li><li>You are responsible for everything the interlock records.</li><li>Never tamper with it or remove it yourself. It belongs to Dräger.</li><li>A missed appointment without 24 hours\' notice can be charged.</li><li>Unpaid fees can lead to removal after 7 days.</li><li>Dräger stores your details on servers in the USA.</li></ul>'],
+  ['fees', 'I have read and agree to the fees and charges.', `Dräger's <a href="${FEES_URL}" target="_blank" rel="noopener">fees and charges</a> list every price, including resets, lockouts, missed appointments and damage. Your monthly price is on the Home tab.`],
+  ['guides', 'I have a copy of the User Guide and the NZ Alcohol Interlock Programme Guide.', 'Matt gives you these at the install. The user guide is also in Paperwork above.'],
+  ['mouthpieces', 'I have 5 mouthpieces.', 'Use your own mouthpiece and swap it at least monthly. They can be washed. Ask for more at any service.'],
+  ['subsidy', 'To get the subsidised price I must show the NZTA subsidy confirmation.', 'Bring the NZTA letter or form to your install (or upload a photo on the new customer form). Without it you pay the full price. If you have a Community Services Card you may qualify.'],
+  ['missed', 'If I miss more than one monthly service in a row, my subsidy may stop.', 'Book on time. This app shows your due date and we email you reminders.'],
+  ['contact', 'If my contact details change, I will tell Dräger or Matt as soon as I can.', `Text Matt on ${MATT}. Dräger's number is 0800 372 437.`],
+  ['wait15', 'I will wait 15 minutes after eating, drinking or smoking before I blow.', 'Food, drink, mouthwash and smoke can leave alcohol in your mouth and give a reading, which can count as a violation. Rinse with water and wait.'],
+  ['smoke', 'I will never blow cigarette or cigar smoke into it.', 'Smoke can damage the handset. You would be charged for the damage, and it could record a violation.'],
+  ['retests', 'I will do every retest. I pull over safely first, and never leave the vehicle running unattended.', 'A missed retest is recorded as a violation and the alarm sounds. If you leave the engine running and walk away, you can miss a retest without knowing.'],
+  ['extend', 'My interlock time can be extended if I don\'t follow the rules.', 'Violations are reported to NZTA and can push out the date you can apply to exit.'],
+  ['paybefore', 'Install, rental, servicing and removal are paid before each job is done.', 'Pay at the visit by EFTPOS, cash or Afterpay, or online by card (2.5% card fee).'],
+  ['rental', 'Monthly rent is charged every month the interlock is in my vehicle, even if I don\'t drive or it is locked out.', 'Rent stops only when the interlock is removed.'],
+  ['data', 'I am responsible for everything the interlock records. It is reported as my data.', 'That includes when someone else drives. Make sure anyone who drives knows how to use it.'],
+  ['nextservice', 'I understand the next service date and how the screen shows it.', 'The screen starts reminding you 7 days before your due date, and you have about a week after it before it locks out. Your due date is on the Home tab.'],
+  ['mechanic', 'Before mechanical work, I tell Matt or Dräger, and I get proof from the mechanic of when they had the vehicle.', 'Leave a clean mouthpiece for the mechanic. If the battery needs disconnecting, call first. Keep the receipt in case something shows up on your record.'],
+  ['theft', 'I have had the information on the Theft Protection Plan.', 'Optional monthly extra, and it can only be added at install. It covers theft or vandalism (not misuse), needs a police report within 10 days, and each claim has an excess.'],
+  ['emergency', 'I know the emergency contacts and the breakdown terms.', `Vehicle won't start or locked out: call Dräger on <a href="tel:0800372437">0800 372 437</a> or text Matt on ${MATT}. Matt explains the breakdown terms at the install.`],
+  ['complaints', 'I know how to make a complaint.', 'Talk to Matt first. You can also send Dräger a complaint using their Customer Feedback Form, or use the feedback box on this page.']];
+const lsTrain = () => { try { return JSON.parse(localStorage.getItem('trainAck') || '[]'); } catch (e) { return []; } };
+function trainingHtml(done) {
+  const n = TRAINING.filter(([id]) => done.includes(id)).length;
+  return `<div class="card" id="trCard"><h2>Training checklist</h2>
+    <p class="muted">These are the points on Dräger's Training Acknowledgement form, which you sign at your install. Tick each one when you understand it. Tap <b>More info</b> for what it means.</p>
+    <p id="trCount"><b>${n} of ${TRAINING.length}</b> ticked${n === TRAINING.length ? ' — all done, thank you' : ''}</p>
+    ${TRAINING.map(([id, t, more]) => `<div class="tr"><label class="chk"><input type="checkbox" data-tr="${id}" ${done.includes(id) ? 'checked' : ''}> ${esc(t)}</label>
+      <details class="faq tr-more"><summary>More info</summary><div class="muted" style="margin-top:4px">${more}</div></details></div>`).join('')}
+    <p class="muted" style="margin-top:10px">Questions about any of these? Ask Matt at your install, or text ${MATT}.</p></div>`;
+}
+function wireTraining(signedIn) {
+  if (!$('trCard')) return;
+  let timer = null;
+  const ticked = () => [...document.querySelectorAll('[data-tr]')].filter(x => x.checked).map(x => x.dataset.tr);
+  document.querySelectorAll('[data-tr]').forEach(x => x.onchange = () => {
+    const t = ticked(), n = t.length;
+    $('trCount').innerHTML = `<b>${n} of ${TRAINING.length}</b> ticked${n === TRAINING.length ? ' — all done, thank you' : ''}`;
+    try { localStorage.setItem('trainAck', JSON.stringify(t)); } catch (e) {}
+    if (signedIn) S.training = t;
+    if (!signedIn) return;
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      const { error } = await db.rpc('set_training_ack', { p_items: t, p_total: TRAINING.length });
+      if (error) toast('Could not save your ticks: ' + errMsg(error), true);
+      else if (n === TRAINING.length) toast('Checklist done. Matt can see it.');
+    }, 700);
+  });
+}
+
+function helpHtml(signedIn, trained) {
   return `<h1>Help</h1>
     <div class="card"><h2>Getting started</h2>
       <p>New to the interlock? Watch this short video first. It shows how to blow into it and what the screen means.</p>
       <a class="btn brand" href="${VIDEO}" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none">Watch the training video</a>
       <p class="muted" style="margin-top:10px">At your install Matt goes through how it works with you. Keep the quick guide in the vehicle.</p></div>
+    ${trainingHtml(trained || [])}
     <div class="card"><h2>Paperwork</h2><p class="muted">Dräger's guides and forms. They open as PDFs.</p>
       ${PAPERWORK.map(([n, u]) => `<a class="slot" style="text-decoration:none;color:inherit" href="${DOCS_BASE + u}" target="_blank" rel="noopener"><span>${esc(n)}</span><span class="muted">Open</span></a>`).join('')}</div>
     <div class="card"><h2>Questions people ask</h2>
@@ -901,9 +962,19 @@ function wireFeedback() {
       <a class="btn ghost" href="${REVIEW}" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none">Leave a Google review</a>`;
   };
 }
-function viewHelp() { $('view').innerHTML = helpHtml(true); wireFeedback(); }
+async function viewHelp() {
+  $('view').innerHTML = helpHtml(true, S.training || lsTrain()); wireFeedback(); wireTraining(true);
+  if (S.training) return;
+  const { data, error } = await db.rpc('my_training');
+  if (error || S.tab !== 'help') return;
+  S.training = (data && data.items) || [];
+  if (!S.training.length && lsTrain().length) {   // ticked before signing in on this phone: carry them over
+    S.training = lsTrain(); db.rpc('set_training_ack', { p_items: S.training, p_total: TRAINING.length });
+  }
+  const tc = $('trCard'); if (tc) { tc.outerHTML = trainingHtml(S.training); wireTraining(true); }
+}
 function renderPublicHelp() {
-  $('app').innerHTML = `<p style="margin:0"><a href="./">← Back</a></p>${helpHtml(false)}`;
+  $('app').innerHTML = `<p style="margin:0"><a href="./">← Back</a></p>${helpHtml(false, lsTrain())}`; wireTraining(false);
 }
 
 // ---------- add to home screen ----------
@@ -1245,7 +1316,7 @@ function viewMe() {
       ${S.me.email ? '' : '<p class="muted">We have no email for you, so we text you anyway.</p>'}</div>
     ${homeScreenCard(false)}
     <div class="card"><button class="btn ghost" id="out" style="margin-top:0">Sign out</button><p class="muted" style="text-align:center"><a href="../privacy/">Privacy policy</a></p></div>
-    <p class="muted" style="text-align:center;font-size:.75rem">build 2026-11-17 02:46 UTC</p>`;
+    <p class="muted" style="text-align:center;font-size:.75rem">build 2026-11-17 22:47 UTC</p>`;
   $('out').onclick = signOut;
   wireHomeScreen();
   $('smsOn').onchange = async () => {
