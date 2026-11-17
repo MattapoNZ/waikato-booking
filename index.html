@@ -599,6 +599,11 @@ const yDate = d => d ? parseDate(d).toLocaleDateString('en-NZ', { day:'numeric',
 const fullName = c => [c.first_name, c.last_name].filter(Boolean).join(' ') || '(no name)';
 const LOC = id => (locations.find(l => l.id === id) || { name: id }).name;
 const SVC = id => services.find(s => s.id === id) || { id, name: id, price: 0 };
+// an extra on a sale is either a service id ('vr') or a custom line { n: name, q: quantity, p: price each }
+const xPrice = x => typeof x === 'string' ? SVC(x).price : Math.round(x.q * x.p * 100) / 100;
+const xName = x => typeof x === 'string' ? SVC(x).name : `${x.n} (${+x.q} × ${money(x.p)})`;
+const lsGet = k => { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} };
 // DB row -> engine customer shape
 const eng = c => ({ id: c.id, installDate: c.install_date, rolloverDate: c.rollover_date, subsidised: c.subsidised, subsidyStart: c.subsidy_start, theftProtection: c.theft_protection,
                     applyDate: c.apply_date, applyDateSetBy: c.apply_date_set_by, alerts: c.alerts });
@@ -651,7 +656,7 @@ function renderLogin(msg) {
     <label class="label" for="pw">Password</label><input id="pw" type="password" autocomplete="current-password" required>
     <button class="btn brand" id="loginBtn">Log in</button>
     <div id="loginMsg" class="alert" hidden></div>
-    <div class="empty" style="font-size:.75rem;margin-top:10px">build 2026-11-16 23:20 UTC</div></form>`;
+    <div class="empty" style="font-size:.75rem;margin-top:10px">build 2026-11-17 00:58 UTC</div></form>`;
   const btn = $('loginBtn'), box = $('loginMsg');
   const fail = m => { btn.disabled = false; btn.textContent = 'Log in'; box.textContent = m; box.hidden = false; };
   $('loginForm').onsubmit = async e => {
@@ -819,7 +824,7 @@ function renderSide() {
     ['iqCx','iqSub','iqTp'].forEach(id => $(id).onchange = calc); calc(); return;
   }
   const c = b.customer || {}, d = customerDates(eng(c), b.session_date), paid = b.payments.length > 0;
-  const total = b.price_cents / 100 + S.extras.reduce((a, id) => a + SVC(id).price, 0);
+  const total = Math.round((b.price_cents / 100 + S.extras.reduce((a, x) => a + xPrice(x), 0)) * 100) / 100;
   const flag = profileFlag(c, b);
   const fl = floating(b), sRow = S.sessions.find(x => x.session_date === b.session_date && x.location_id === b.location_id);
   const when = fl ? '≈ ' + fmtTime((sRow && estFor(sRow).get(b.id)) ?? b.start_min) : fmtTime(b.start_min);
@@ -840,11 +845,19 @@ function renderSide() {
       <div class="grid2"><button class="btn" id="lockRem">Lock time now</button><button class="btn ghost" data-st="cancelled">Decline</button></div>` : ''}
     ${!fl && b.status === 'pencilled' ? `${b.kind === 'service' ? '<div class="alert" style="background:var(--warn-soft);color:var(--ink)">Late request, made after online bookings closed. The customer has been told not to come until you confirm. They get an email either way.</div>' : ''}<div class="grid2"><button class="btn brand" data-st="confirmed">${b.kind === 'removal' ? 'Accept removal' : 'Confirm request'}</button><button class="btn ghost" data-st="cancelled">Decline</button></div>` : ''}
     <div style="margin-top:10px"><div class="co-line"><span>${esc(b.details?.temporary ? 'Temporary removal' : SVC(b.service_id).name)}</span><span class="t">${money(b.price_cents/100)}</span></div>
-      ${S.extras.map(id => `<div class="co-line"><span>${esc(SVC(id).name)}</span><span class="t">${money(SVC(id).price)}</span></div>`).join('')}
+      ${S.extras.map((x, i) => `<div class="co-line"><span>${esc(xName(x))}${paid ? '' : ` <button class="chip" data-rx="${i}" title="Remove" style="padding:0 7px">×</button>`}</span><span class="t">${money(xPrice(x))}</span></div>`).join('')}
       ${paid ? '' : `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"><button class="chip" data-x="vr">+ Violation reset $100</button><button class="chip" data-x="vr-disc">+ Mech/battery $60</button>${S.extras.length?'<button class="chip" id="clrX">Clear</button>':''}</div>
       <div style="display:flex;gap:6px;margin-top:6px"><select id="moreFee" style="flex:1"><option value="">More Dräger charges…</option>
         <optgroup label="Fees">${services.filter(x=>x.group==='fee').map(x=>`<option value="${x.id}">${esc(x.name)} — ${money(x.price)}</option>`).join('')}</optgroup>
-        <optgroup label="Damage">${services.filter(x=>x.group==='damage').map(x=>`<option value="${x.id}">${esc(x.name)} — ${money(x.price)}</option>`).join('')}</optgroup></select><button class="btn ghost" id="addFee">Add</button></div>`}
+        <optgroup label="Damage">${services.filter(x=>x.group==='damage').map(x=>`<option value="${x.id}">${esc(x.name)} — ${money(x.price)}</option>`).join('')}</optgroup></select><button class="btn ghost" id="addFee">Add</button></div>
+      <div style="display:flex;gap:6px;margin-top:6px;align-items:center;flex-wrap:wrap"><b style="min-width:70px">Call-out</b>
+        <input id="coKm" type="number" inputmode="decimal" step="any" min="0" placeholder="km" style="width:80px"> km ×
+        $<input id="coRate" type="number" inputmode="decimal" step="0.01" min="0" placeholder="per km" value="${esc(lsGet('wi_co_rate'))}" style="width:80px">
+        <button class="btn ghost" id="addCo">Add</button></div>
+      <div style="display:flex;gap:6px;margin-top:6px;align-items:center;flex-wrap:wrap"><input id="lbN" value="Labour" placeholder="What for" style="min-width:70px;flex:1">
+        <input id="lbQ" type="number" inputmode="decimal" step="any" min="0" value="1" placeholder="qty / hrs" style="width:64px"> ×
+        $<input id="lbP" type="number" inputmode="decimal" step="0.01" min="0" placeholder="each" value="${esc(lsGet('wi_lb_rate'))}" style="width:80px">
+        <button class="btn ghost" id="addLb">Add</button></div>`}
       <div class="co-total"><span>Total</span><span class="t">${money(paid ? b.payments.reduce((a,p)=>a+p.amount_cents,0)/100 : total)}</span></div>
       <div class="empty">Includes GST ${money((paid ? b.payments.reduce((a,p)=>a+p.amount_cents,0)/100 : total) * 3 / 23)}</div></div>
     ${paid ? `<div class="alert" style="background:var(--ok-soft);color:var(--ok)">Paid by ${esc(b.payments.map(p => p.method === 'online' ? 'card online (Stripe)' : p.method === 'card_terminal' ? 'EFTPOS' : p.method.replace(/_/g,' ')).join(', '))}.</div>
@@ -860,6 +873,14 @@ function renderSide() {
   el.querySelectorAll('[data-x]').forEach(x => x.onclick = () => { S.extras.push(x.dataset.x); renderSide(); });
   const af = $('addFee'); if (af) af.onclick = () => { const v = $('moreFee').value; if (v) { S.extras.push(v); renderSide(); } };
   const cx = $('clrX'); if (cx) cx.onclick = () => { S.extras = []; renderSide(); };
+  el.querySelectorAll('[data-rx]').forEach(x => x.onclick = () => { S.extras.splice(+x.dataset.rx, 1); renderSide(); });
+  const addLine = (n, q, p, rateKey) => {
+    q = parseFloat(q); p = parseFloat(p);
+    if (!(q > 0) || !(p >= 0) || isNaN(p)) return toast('Enter a quantity and a price', true);
+    lsSet(rateKey, String(p)); S.extras.push({ n: (n || '').trim().slice(0, 60) || 'Other', q, p }); renderSide();
+  };
+  if ($('addCo')) $('addCo').onclick = () => addLine('Call-out', $('coKm').value, $('coRate').value, 'wi_co_rate');
+  if ($('addLb')) $('addLb').onclick = () => addLine($('lbN').value, $('lbQ').value, $('lbP').value, 'wi_lb_rate');
   el.querySelectorAll('[data-st]').forEach(x => x.onclick = () => setStatus(b, x.dataset.st));
   if ($('apRem')) $('apRem').onclick = async () => {
     const { error } = await db.rpc('approve_removal', { p_booking: b.id }); if (error) return toast(errMsg(error), true);
@@ -968,7 +989,9 @@ async function undoPayment(b) {
   const { error } = await db.from('payments').delete().eq('booking_id', b.id);
   if (error) return toast(errMsg(error), true);
   await db.from('bookings').update({ status: 'arrived' }).eq('id', b.id);
-  S.extras = (b.payments[0]?.provider_ref || '').startsWith('extras:') ? b.payments[0].provider_ref.slice(7).split(',') : [];
+  const pr = b.payments[0]?.provider_ref || '';
+  S.extras = pr.startsWith('extras2:') ? (() => { try { return JSON.parse(pr.slice(8)); } catch (e) { return []; } })()
+    : pr.startsWith('extras:') ? pr.slice(7).split(',') : [];
   toast('Sale cancelled — redo it below'); await loadBookings(); renderRun();
 }
 
@@ -982,7 +1005,7 @@ async function setStatus(b, st) {
 async function takePayment(b, method, total) {
   document.querySelectorAll('[data-pay]').forEach(x => x.disabled = true);
   const { error } = await db.from('payments').insert({ booking_id: b.id, customer_id: b.customer_id, amount_cents: Math.round(total * 100), method,
-    provider_ref: S.extras.length ? 'extras:' + S.extras.join(',') : null });
+    provider_ref: !S.extras.length ? null : S.extras.every(x => typeof x === 'string') ? 'extras:' + S.extras.join(',') : 'extras2:' + JSON.stringify(S.extras) });
   if (error) { document.querySelectorAll('[data-pay]').forEach(x => x.disabled = false); return toast(errMsg(error), true); }
   await db.from('bookings').update({ status: 'completed' }).eq('id', b.id);
   S.extras = []; toast(`Paid ${money(total)}`); await loadBookings(); renderRun();
