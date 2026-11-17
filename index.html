@@ -1588,6 +1588,7 @@ function editCustomer(c, target = 'cside', after = renderCustomers) {
   el.innerHTML = `${target === 'side' ? '<button class="chip" id="edBack">← Back to checkout</button>' : ''}
     <h2>${esc(fullName(c))}</h2><div class="empty">${esc(c.mobile || '')} · ${esc(c.email || '')}</div>
     <div class="empty">Pays now: <b>${m ? esc(m.name) + ' ' + money(m.price) : '—'}</b></div>
+    <div class="empty">Training checklist: <b>${c.training_ack?.completed_at ? 'all ticked ' + new Date(c.training_ack.completed_at).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', timeZone: 'Pacific/Auckland' }) : (c.training_ack?.items || []).length ? (c.training_ack.items.length + ' of 21 ticked') : 'not started'}</b></div>
     ${priceReqBox(c)}
     ${c.self_registered ? `<div class="alert" style="background:var(--warn-soft);color:var(--ink)"><b>New app sign-up.</b> They entered these details themselves. Check them, then mark as checked.
       <div class="grid2" style="margin-top:8px"><button class="btn brand" id="mkChecked">Details checked</button><button class="btn ghost" id="joinOpen">Join with existing customer</button></div><div id="joinBox"></div></div>` : ''}
