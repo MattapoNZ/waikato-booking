@@ -5,16 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Waikato Interlocks — Run sheet</title>
 <meta name="theme-color" content="#1f4d5c">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://yimjmbarxnmakpswbrhz.supabase.co; connect-src 'self' https://yimjmbarxnmakpswbrhz.supabase.co wss://yimjmbarxnmakpswbrhz.supabase.co; manifest-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'">
-<meta name="referrer" content="strict-origin">
-<script>if (top !== self) { try { top.location = self.location.href; } catch (e) { document.documentElement.hidden = true; } }</script>
-<link rel="manifest" href="manifest.webmanifest">
-<link rel="apple-touch-icon" href="apple-touch-icon.png">
-<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Run sheet">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@600;700&family=Source+Sans+3:wght@400;600;700&family=JetBrains+Mono:wght@500&display=swap">
 <style>
 :root{--bg:#f3f4f2;--panel:#fff;--ink:#18232b;--muted:#5d6b73;--line:#dde2e0;--accent:#d98a00;--accent-ink:#1b1300;--brand:#1f4d5c;--brand-soft:#e3eef0;
@@ -32,19 +22,6 @@ input,select,textarea{font:inherit;color:var(--ink);background:var(--panel);bord
 .top{position:sticky;top:0;z-index:5;background:var(--bg);display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;justify-content:space-between;padding:12px 0 10px;border-bottom:1px solid var(--line)}
 .top h1{font-size:1.4rem}
 .tabs{display:flex;gap:4px;flex-wrap:wrap}
-.tabs .n{display:inline-block;min-width:18px;padding:0 5px;margin-left:4px;border-radius:999px;background:var(--bad);color:#fff;font-size:.72rem;font-weight:700;line-height:18px;text-align:center}
-@media (max-width:700px){
-  body{padding-bottom:calc(76px + env(safe-area-inset-bottom))}
-  .top{padding:8px 0 6px}
-  .top h1{font-size:1.15rem}
-  .top .tabs{position:fixed;left:0;right:0;bottom:0;z-index:15;background:var(--panel);border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(4,1fr);gap:0;padding:6px 6px calc(6px + env(safe-area-inset-bottom))}
-  .top .tabs .chip{border:0;border-radius:10px;background:none;padding:10px 2px;font-size:.86rem;min-height:44px}
-  .top .tabs .chip[aria-pressed="true"]{background:var(--brand-soft);color:var(--brand);font-weight:700}
-  .top .tools{display:flex;gap:4px}
-  .toast{bottom:calc(84px + env(safe-area-inset-bottom))}
-  .btn{min-height:44px}
-}
-@media (min-width:701px){.top .tools{display:contents}}
 .chip{border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:999px;padding:5px 12px;font-size:.9rem;white-space:nowrap}
 .chip[aria-pressed="true"]{background:var(--brand);border-color:var(--brand);color:var(--panel);font-weight:600}
 .btn{border:0;border-radius:8px;padding:9px 14px;font-weight:700;background:var(--accent);color:var(--accent-ink);white-space:nowrap}
@@ -71,10 +48,13 @@ tr.free td{color:var(--muted)}
 .p-pencilled{background:var(--warn-soft);color:var(--warn)} .p-confirmed{background:var(--bg);color:var(--ink)} .p-arrived{background:var(--brand-soft);color:var(--brand)}
 .p-completed{background:var(--ok-soft);color:var(--ok)} .p-no_show,.p-cancelled{background:var(--bad-soft);color:var(--bad)}
 .flag{color:var(--bad);font-weight:600;font-size:.8rem}
-.side{position:sticky;top:70px}
+.side{position:sticky;top:70px;max-height:calc(100vh - 84px);overflow-y:auto;overscroll-behavior:contain}
+.qty{width:4.2em}.amt{width:6.5em}
+.co-line .x{border:0;background:none;color:var(--muted);padding:0 4px;font-size:1rem}
+.credit{color:var(--ok)}
 .m-only{display:none}
 @media (max-width:640px){.d-only{display:none}.m-only{display:block}td,th{padding:7px 5px}table{font-size:.88rem}.panel{padding:10px}}
-@media (max-width:960px){.side{position:static}}
+@media (max-width:960px){.side{position:static;max-height:none;overflow:visible}}
 .facts{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px}
 .fact{background:var(--bg);border-radius:8px;padding:7px 9px}.fact .v{font-weight:700}
 .co-line{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px dashed var(--line)}
@@ -95,7 +75,7 @@ tr.free td{color:var(--muted)}
 <div id="app"></div>
 <div id="toast" class="toast" hidden></div>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js" integrity="sha384-0w2KAL2YHP6wKOkUDzkCDGgVvfmHnj02DHeQ6XcHOgTfFsGyonKOpShMH1x6nk9o" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 <script>
 // Waikato Interlocks booking engine — sequential slot logic.
 // No dependencies. All dates are NZ-local "YYYY-MM-DD" strings and all times are
@@ -201,8 +181,8 @@ function sessionsForRange({ schedules, exceptions = [], locations = [] }, fromDa
         start,
         end,
         slotMins: s.slotMins || 5,
-        // Removals are floating placeholders (see removalEstimates): up to removalSlots per session
-        removalSlots: s.removalSlots ?? 3,
+        // Removals queue AFTER servicing finishes: end .. end + removalSlots × removalMins
+        removalSlots: s.removalSlots ?? 2,
         removalMins: s.removalMins ?? 15,
         notes,
       });
@@ -229,61 +209,25 @@ function leadTimeOk(date, t, now, cutoffMins) {
   return minsUntil >= cutoffMins;
 }
 
-// ---------- removals: floating placeholders ----------
-// A removal does NOT hold a time. It is a placeholder that sits at the first free gap in the
-// session and slides later whenever a service or violation reset books that time:
-//   removal requested when 11:30 is free -> shows "about 11:30"; someone books a service at 11:30
-//   -> the removal now shows "about 11:35", and so on.
-// It only becomes a solid, held time once Matt has approved it AND times are locked on the
-// morning of the session. Until then services always win.
-// booking fields used: { id, start, duration, status, kind, timeLocked, approvedAt, createdAt }
-//   timeLocked === false  -> floating removal;  anything else -> fixed (holds its time)
-const isFloating = b => b.kind === 'removal' && b.timeLocked === false && b.status !== 'cancelled';
-// timeLocked === false on anything else (e.g. a walk-in sale) means it is on the sheet but holds no slot
-const isFixed = b => b.status !== 'cancelled' && b.timeLocked !== false;
-
-// Estimated time for every floating removal in this session: Map(bookingId -> minutes).
-// Approved ones are placed first, then in the order they were requested.
-function removalEstimates(session, bookings, { onlyApproved = false, extra = 0 } = {}) {
-  const sess = bookings.filter(b => b.sessionId === session.id);
-  const fixed = sess.filter(isFixed).map(b => ({ start: b.start, duration: b.duration, status: 'confirmed' }));
-  const floaters = sess.filter(isFloating).filter(b => !onlyApproved || b.approvedAt)
-    .map((b, i) => ({ b, i }))
-    .sort((x, y) => (!x.b.approvedAt - !y.b.approvedAt) || String(x.b.createdAt || '').localeCompare(String(y.b.createdAt || '')) || x.i - y.i)
-    .map(x => x.b);
-  const out = new Map();
-  const place = () => {
-    let t = session.start;
-    while (!isFree(t, session.removalMins, fixed)) t += session.slotMins;
-    fixed.push({ start: t, duration: session.removalMins, status: 'confirmed' });
-    return t;
-  };
-  for (const b of floaters) out.set(b.id, place());
-  for (let i = 0; i < extra; i++) out.set(`new${i}`, place());   // where the NEXT request would sit
-  return out;
-}
-
-// Morning of the session: approved removals take a solid time and now hold it. Unapproved ones stay floating.
-function lockRemovals(session, bookings) {
-  const est = removalEstimates(session, bookings, { onlyApproved: true });
-  return bookings.map(b => est.has(b.id) ? { ...b, start: est.get(b.id), timeLocked: true, status: 'confirmed' } : b);
+// Removal queue times: straight after the service window, one removal after another.
+// Cambridge Tue (service ends 10:10, 2 removals of 15 min) -> 10:10, 10:25
+function removalTimes(session) {
+  const times = [];
+  for (let i = 0; i < session.removalSlots; i++) times.push(session.end + i * session.removalMins);
+  return times;
 }
 
 // The ONE time offered to a customer for this session, or null if full.
-// Services / resets: earliest 5-min slot not held by a service or a LOCKED removal (floating removals are ignored).
-// Removals: an approximate time only — null once the session has its limit of removals (default 3).
+// kind 'removal' uses the removal queue after servicing; everything else uses the 5-min service slots.
 // opts.now = { date, minutes } (NZ local), opts.cutoffMins = min lead time (Timely: 3 hours)
 function nextOfferedSlot(session, bookings, durationMins = session.slotMins, opts = {}) {
-  const sess = bookings.filter(b => b.sessionId === session.id);
+  const removal = opts.kind === 'removal';
+  const sessBookings = bookings.filter(b => b.sessionId === session.id && (b.kind === 'removal') === removal);
   const cutoff = opts.cutoffMins ?? 180;
-  if (opts.kind === 'removal') {
-    if (sess.filter(b => b.kind === 'removal' && b.status !== 'cancelled').length >= session.removalSlots) return null;
-    if (opts.now && !leadTimeOk(session.date, session.start, opts.now, cutoff)) return null;
-    return removalEstimates(session, bookings, { extra: 1 }).get('new0');
-  }
-  const fixed = sess.filter(isFixed);
-  for (const t of slotTimes(session, durationMins)) {
-    if (!isFree(t, durationMins, fixed)) continue;
+  const dur = removal ? session.removalMins : durationMins;
+  const times = removal ? removalTimes(session) : slotTimes(session, durationMins);
+  for (const t of times) {
+    if (!isFree(t, dur, sessBookings)) continue;
     if (opts.now && !leadTimeOk(session.date, t, opts.now, cutoff)) continue;
     return t;
   }
@@ -302,8 +246,7 @@ function customerAvailability(data, bookings, { fromDate, horizonDays = 21, dura
 
 // Create a booking — re-checks the slot so two people tapping at once can't both get 9:25.
 // (In the real backend this is enforced by a unique index on (location, date, start) inside a transaction.)
-// Services and resets are auto-confirmed and hold their time. Removals are floating placeholders:
-// pencilled, no held time, until Matt approves and times are locked on the morning.
+// Services and resets are auto-confirmed. Removals are pencilled-in for Matt to accept.
 function book(session, bookings, { customerId, serviceId, kind = 'service', durationMins = 5, requestedStart, now, cutoffMins = 180, customer, details = {} }) {
   if (kind === 'removal' && customer) {
     const req = removalRequirements(customer, session.date);
@@ -317,11 +260,11 @@ function book(session, bookings, { customerId, serviceId, kind = 'service', dura
   }
   const offered = nextOfferedSlot(session, bookings, durationMins, { now, cutoffMins, kind });
   if (offered === null) return { ok: false, reason: kind === 'removal' ? 'No removal spots left that day' : 'Session full' };
-  if (kind !== 'removal' && requestedStart !== undefined && requestedStart !== offered) {
+  if (requestedStart !== undefined && requestedStart !== offered) {
     return { ok: false, reason: 'That time was just taken', offered };
   }
   const booking = {
-    id: `bk_${session.id}_${kind}_${kind === 'removal' ? 'float' : offered}_${customerId}`,
+    id: `bk_${session.id}_${kind}_${offered}_${customerId}`,
     sessionId: session.id,
     locationId: session.locationId,
     date: session.date,
@@ -331,8 +274,6 @@ function book(session, bookings, { customerId, serviceId, kind = 'service', dura
     serviceId,
     kind,
     status: kind === 'removal' ? 'pencilled' : 'confirmed',
-    timeLocked: kind !== 'removal',   // removals float until approved + locked
-    approvedAt: null,
     details,
   };
   return { ok: true, booking };
@@ -352,7 +293,7 @@ function addMonths(s, n) {
 
 // Subsidy runs 15 months from install, or from the later date they obtained it (subsidyStart).
 function customerDates(c, today) {
-  const subStart = c.subsidised ? (c.subsidyStart || c.installDate) : null;   // the date on the NZTA subsidy letter if we have it, else the install date
+  const subStart = c.subsidised ? (c.subsidyStart && c.subsidyStart > c.installDate ? c.subsidyStart : c.installDate) : null;
   const subsidyEnds = subStart ? addMonths(subStart, c.subsidyMonths ?? 15) : null;
   const standardExit = c.installDate ? addMonths(c.installDate, 12) : null;
   return {
@@ -363,40 +304,18 @@ function customerDates(c, today) {
     applyDateSource: c.applyDate ? (c.applyDateSetBy || 'customer') : 'install',
     subsidyStart: subStart,
     subsidyEnds,
-    // The subsidy stays ACTIVE until staff switch it off (when Dräger emails to say it has ended).
-    // subsidyEnds is only the expected end; subsidyOverdue flags that the 15 months have passed.
-    subsidyActive: !!c.subsidised,
-    subsidyOverdue: !!c.subsidised && !!subsidyEnds && !!today && today >= subsidyEnds,
+    subsidyActive: !!subsidyEnds && (!today || today < subsidyEnds),
   };
 }
 
-// Monthly service window = rollover day-of-month each month, ±7 days.
-// The rollover date is the install date unless it was changed (e.g. a second device was fitted later).
-// `servicedDates` = days a MONTHLY SERVICE was actually done and charged (not a violation reset or a
-// data reading). A window that already has one is finished, so the next month's window is returned.
-// A service up to 20 days before the due date counts for that month (an early visit; the previous
-// month's window has closed by then).
-// `c.dueOverrides` = [{ normal_due, due }]: Matt moved that one month's due date (e.g. over Christmas).
-// The month after goes back to the normal day.
-const EARLY_SERVICE_DAYS = 20;
-function serviceWindow(c, onOrAfter, servicedDates = []) {
-  const anchor = c.rolloverDate || c.installDate;
-  if (!anchor) return null;
-  for (let i = 0; i < 600; i++) {
-    const normalDue = addMonths(anchor, i);
-    if (i === 0 && !c.rolloverDate) continue;   // install day itself is not a service
-    const ov = (c.dueOverrides || []).find(o => o.normal_due === normalDue);
-    const due = ov ? ov.due : normalDue;
-    const opens = addDays(due, -7), closes = addDays(due, 7);
-    if (closes < onOrAfter) continue;
-    if (servicedDates.some(d => d >= addDays(due, -EARLY_SERVICE_DAYS) && d <= closes)) continue;   // this month's service is done
-    return { due, normalDue, moved: !!ov, opens, closes };
+// Monthly service window = install day-of-month each month, ±7 days.
+function serviceWindow(c, onOrAfter) {
+  if (!c.installDate) return null;
+  for (let i = 1; i < 60; i++) {
+    const due = addMonths(c.installDate, i);
+    if (addDays(due, 7) >= onOrAfter) return { due, opens: addDays(due, -7), closes: addDays(due, 7) };
   }
   return null;
-}
-// The days a customer had their monthly service, from their bookings: completed, and the thing charged was the service itself.
-function servicedDates(bookings, services) {
-  return bookings.filter(b => b.status === 'completed' && (services.find(s => s.id === b.service_id) || {}).group === 'service').map(b => b.session_date);
 }
 
 // Exactly what this customer is allowed to book, worked out from their profile:
@@ -461,7 +380,7 @@ function removalRequirements(c, sessionDate) {
 // Changeover: moving the interlock to another vehicle. A request (no slot) — Matt arranges the time.
 // Vehicle details are required so he can tell if it's a standard or complex install.
 const EUROPEAN = ['audi', 'bmw', 'mercedes', 'mercedes-benz', 'volkswagen', 'vw', 'volvo', 'skoda', 'peugeot', 'citroen', 'renault', 'mini', 'porsche', 'land rover', 'jaguar', 'fiat', 'alfa romeo', 'seat', 'cupra', 'opel', 'saab'];
-function changeoverRequest(c, v = {}, { today, preferredLocationId = null, preferredDays = '', siteAddress = '', approxTime = '', notes = '' } = {}) {
+function changeoverRequest(c, v = {}, { today, preferredLocationId = null, preferredDays = '', notes = '' } = {}) {
   const errors = {};
   const rego = String(v.rego || '').toUpperCase().replace(/\s+/g, '');
   if (!/^[A-Z0-9]{1,6}$/.test(rego)) errors.rego = 'Enter the plate (up to 6 letters/numbers)';
@@ -471,9 +390,6 @@ function changeoverRequest(c, v = {}, { today, preferredLocationId = null, prefe
   if (!(year >= 1980 && year <= maxYear)) errors.year = 'Enter the year';
   if (!['key', 'push'].includes(v.startType)) errors.startType = 'Key or push-button start?';
   if (!['petrol', 'diesel', 'hybrid', 'ev'].includes(v.fuel)) errors.fuel = 'Choose the fuel type';
-  // Changeovers are done on site: Matt comes to the vehicle, so we need where and roughly when.
-  if (!String(siteAddress || '').trim()) errors.siteAddress = 'Where is the vehicle? (address)';
-  if (!String(approxTime || '').trim() && !String(preferredDays || '').trim()) errors.approxTime = 'Roughly what day and time suits?';
   if (Object.keys(errors).length) return { ok: false, errors };
   const reasons = [];
   if (v.startType === 'push') reasons.push('push-button start');
@@ -488,7 +404,6 @@ function changeoverRequest(c, v = {}, { today, preferredLocationId = null, prefe
       likelyInstall: reasons.length ? 'complex' : 'standard', complexReasons: reasons,
       // Dräger "Change vehicle": $290 standard / $350 complex, plus hourly labour if the wiring needs it
       quote: reasons.length ? 350 : 290,
-      onSite: true, siteAddress: String(siteAddress).trim(), approxTime: String(approxTime).trim(),
       preferredLocationId, preferredDays, notes,
     },
   };
@@ -522,7 +437,7 @@ const locations = [
 ];
 
 // Roster as set in Timely (all 5-minute slots, "can be booked online every 5 minutes").
-// removalSlots: how many removals a session takes (default 3). Removals are floating placeholders — see removalEstimates().
+// removalSlots: how many 15-min removals can queue after servicing ends (default 2 — change per location).
 const schedules = [
   { id: 'cam-tue', locationId: 'cambridge', rule: { type: 'weekly', weekdays: [2] }, start: '9:20', end: '10:10', slotMins: 5 },
   { id: 'cam-thu', locationId: 'cambridge', rule: { type: 'weekly', weekdays: [4] }, start: '9:20', end: '10:00', slotMins: 5 },
@@ -539,12 +454,12 @@ const services = [
   { id: 'sub', name: 'Subsidised service (no theft protection)', duration: 5, price: 115, onlineBookable: true, subsidised: true, group: 'service', theftProtection: false },
   { id: 'vr', name: 'Violation reset', duration: 5, price: 100, onlineBookable: true, group: 'violation' },
   { id: 'vr-disc', name: 'Violation reset — mechanic / battery', duration: 5, price: 60, onlineBookable: true, group: 'violation' },
-  { id: 'data', name: 'Data reading only', duration: 5, price: 60, onlineBookable: true, group: 'data' },   // between services, e.g. to apply to NZTA without paying for a full service
   { id: 'inst', name: 'Install — standard vehicle', duration: 120, price: 200, onlineBookable: false, group: 'install' },      // + first month rental (+ $7 theft protection) — see installCharge()
   { id: 'inst-sub', name: 'Install — subsidised (fee waived)', duration: 120, price: 0, onlineBookable: false, subsidised: true, group: 'install' },
   { id: 'inst-cx', name: 'Install — complex vehicle', duration: 180, price: 300, onlineBookable: false, group: 'install' },
-  { id: 'rem', name: 'Removal', duration: 15, price: 110, onlineBookable: true, group: 'removal' }, // floating placeholder until approved + locked on the morning; temporary removals are handled the same (need NZTA approval)
-  { id: 'chg', name: 'Changeover to another vehicle', duration: 120, price: 290, priceComplex: 350, onlineBookable: true, group: 'changeover', requestOnly: true }, // request + vehicle details; done ON SITE at an arranged approx time; $290 standard / $350 complex (Dräger)
+  { id: 'rem', name: 'Removal', duration: 15, price: 110, onlineBookable: true, group: 'removal' }, // pencilled-in, queued after servicing
+  { id: 'misc', name: 'Other / custom sale', duration: 5, price: 0, onlineBookable: false, group: 'misc' }, // walk-in with only custom lines (travel, labour …)
+  { id: 'chg', name: 'Changeover to another vehicle', duration: 120, price: 290, priceComplex: 350, onlineBookable: true, group: 'changeover', requestOnly: true }, // request + vehicle details; $290 standard / $350 complex (Dräger)
 
   // ---- Dräger Schedule of Fees and Charges, DSP-ITL-605 Rev:4, effective 16 Apr 2026 (NZD incl GST) ----
   // Staff-only charges, added at checkout. Not bookable by customers.
@@ -591,10 +506,7 @@ const bookingPolicy = {
 
 const SUPABASE_URL = 'https://yimjmbarxnmakpswbrhz.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_vJ2mi3Ig-2fK_rBQIGA6Zw_4wt8eLpE'; // public key — safe in the page
-// lock: no-op — supabase-js's cross-tab lock can hang sign-in forever on phones (several tabs / home-screen app)
-const db = (window.__mockSupabase || window.supabase).createClient(SUPABASE_URL, SUPABASE_KEY,
-  { auth: { persistSession: true, autoRefreshToken: true, lock: async (_n, _t, fn) => fn() } });
-const withTimeout = (pr, ms, what) => Promise.race([pr, new Promise((_, rej) => setTimeout(() => rej(new Error(what + ' timed out — check your signal and try again')), ms))]);
+const db = (window.__mockSupabase || window.supabase).createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // ---------- helpers ----------
 const $ = id => document.getElementById(id);
@@ -606,95 +518,38 @@ const yDate = d => d ? parseDate(d).toLocaleDateString('en-NZ', { day:'numeric',
 const fullName = c => [c.first_name, c.last_name].filter(Boolean).join(' ') || '(no name)';
 const LOC = id => (locations.find(l => l.id === id) || { name: id }).name;
 const SVC = id => services.find(s => s.id === id) || { id, name: id, price: 0 };
-// an extra on a sale is either a service id ('vr') or a custom line { n: name, q: quantity, p: price each }
-const xPrice = x => typeof x === 'string' ? SVC(x).price : Math.round(x.q * x.p * 100) / 100;
-const xName = x => typeof x === 'string' ? SVC(x).name : `${x.n} (${+x.q} × ${money(x.p)})`;
-const lsGet = k => { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } };
-const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} };
 // DB row -> engine customer shape
-const eng = c => ({ id: c.id, installDate: c.install_date, rolloverDate: c.rollover_date, subsidised: c.subsidised, subsidyStart: c.subsidy_start, theftProtection: c.theft_protection,
-                    applyDate: c.apply_date, applyDateSetBy: c.apply_date_set_by, alerts: c.alerts,
-                    dueOverrides: (c.due_overrides || []).filter(o => !o.vehicle_id) });
-// the same customer, seen through one of their extra vehicles: that vehicle's dates and price, the customer's apply date
-const engV = (c, v) => !v ? eng(c) : { ...eng(c), installDate: v.install_date, rolloverDate: v.rollover_date, subsidised: v.subsidised, subsidyStart: null,
-  theftProtection: v.theft_protection, applyDate: customerDates(eng(c), null).exitEligible,
-  dueOverrides: (c.due_overrides || []).filter(o => o.vehicle_id === v.id) };
-const XMAS_FROM = '2026-12-19', XMAS_TO = '2027-01-10';   // next due dates in here get flagged at checkout to be moved
-const vLabel = (c, v) => v ? v.label : (c.vehicle || 'First vehicle');
-// customer search terms: name, mobile, email, rego/vehicle name (first vehicle and any extra vehicles), ignoring spaces in regos
-async function custSearchOr(q, withEmail) {
-  q = q.replace(/[,()%*]/g, ' ').trim(); const ns = q.replace(/\s+/g, '');
-  const pats = [...new Set([q, ns].filter(x => x.length >= 2))];
-  const terms = ['first_name', 'last_name', 'mobile', ...(withEmail ? ['email'] : [])].map(f => `${f}.ilike.%${q}%`);
-  pats.forEach(x => terms.push(`vehicle.ilike.%${x}%`));
-  const ids = new Set();
-  for (const x of pats) {
-    const r = await db.from('customer_vehicles').select('customer_id').ilike('label', `%${x}%`).is('removed_at', null).limit(50);
-    (r.data || []).forEach(v => ids.add(v.customer_id));
-  }
-  if (ids.size) terms.push(`id.in.(${[...ids].join(',')})`);
-  return terms.join(',');
-}
+const eng = c => ({ id: c.id, installDate: c.install_date, subsidised: c.subsidised, subsidyStart: c.subsidy_start, theftProtection: c.theft_protection,
+                    applyDate: c.apply_date, applyDateSetBy: c.apply_date_set_by, alerts: c.alerts });
 let toastT;
 function toast(msg, bad) { const t = $('toast'); t.textContent = msg; t.className = 'toast' + (bad ? ' bad' : ''); t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, 4000); }
 const errMsg = e => (e && (e.message || e.error_description)) || String(e);
 
-// Floating removals: Map(bookingId -> estimated minutes) for one location on the selected day
-const sessOf = s => ({ id: 's', date: s.session_date, start: s.start_min, end: s.end_min, slotMins: s.slot_mins, removalSlots: s.removal_slots, removalMins: s.removal_mins });
-const toEng = b => ({ id: b.id, sessionId: 's', start: b.start_min, duration: b.duration_mins, status: b.status, kind: b.kind,
-                      timeLocked: b.time_locked, approvedAt: b.approved_at, createdAt: b.created_at });
-const floating = b => b.kind === 'removal' && b.time_locked === false;
-const estFor = s => removalEstimates(sessOf(s), S.bookings.filter(b => b.location_id === s.location_id).map(toEng));
-const hmOf = v => { const [h, m] = String(v).split(':').map(Number); return h * 60 + m; };
-
 // ---------- state ----------
-const S = { view: 'run', date: null, sessions: [], bookings: [], sel: null, extras: [], custQ: '', custSel: null, customers: [], priceReqs: [], custFilter: 'all' };
-const PR = id => S.priceReqs.find(r => r.customer_id === id);
-async function loadPriceReqs() {
-  const [pr, nu, eq] = await Promise.all([db.from('price_requests').select('*').eq('status', 'requested'), db.from('customers').select('id').eq('self_registered', true).limit(200), db.from('enquiries').select('id').eq('status', 'new').limit(200)]);
-  S.priceReqs = pr.data || []; S.enqCount = (eq.data || []).length;
-  const todo = new Set([...S.priceReqs.map(r => r.customer_id), ...(nu.data || []).map(c => c.id)]).size + S.enqCount;
-  if (todo !== S.todo) { S.todo = todo; const b = document.querySelector('[data-v="cust"]'); if (b) b.innerHTML = 'Customers' + (todo ? `<span class="n">${todo}</span>` : ''); }
-}
+const S = { view: 'run', date: null, sessions: [], bookings: [], sel: null, extras: [], custQ: '', custSel: null, customers: [], credits: {}, useCredit: false, creditsOff: false };
 
 // ---------- auth ----------
 async function start() {
-  try {
-    const { data } = await withTimeout(db.auth.getSession(), 15000, 'Checking login');
-    // The site's front door is shared with customers: anyone who is not staff goes to the booking app.
-    let wasStaff = false; try { wasStaff = localStorage.getItem('wi_staff') === '1'; } catch (e) {}
-    const wantStaff = wasStaff || /[?&](staff\b|code=|state=)/.test(location.search) || location.protocol === 'file:' || matchMedia('(display-mode: standalone)').matches;
-    if (!data.session) return wantStaff ? renderLogin() : location.replace('book/');
-    const { data: me, error } = await withTimeout(db.from('staff').select('name').limit(1), 15000, 'Staff check');
-    if (error) return renderLogin('Staff check failed: ' + errMsg(error));
-    if ((!me || !me.length) && !wantStaff) return location.replace('book/');
-    if (me && me.length) { try { localStorage.setItem('wi_staff', '1'); } catch (e) {} }
-    if (!me || !me.length) return renderLogin('Logged in, but this login is not set up as staff yet. Run the staff insert in Supabase, then log in again.');
-    S.me = me[0].name;
-    await withTimeout(loadSessions(), 20000, 'Loading sessions');
-    render();
-    finishGcalConnect();
-  } catch (e) { renderLogin(errMsg(e)); }
+  const { data } = await db.auth.getSession();
+  if (!data.session) return renderLogin();
+  const { data: me, error } = await db.from('staff').select('name').limit(1);
+  if (error || !me || !me.length) return renderLogin('This login is not set up as staff yet. Run the staff insert in Supabase, then log in again.');
+  S.me = me[0].name;
+  await loadSessions();
+  render();
 }
 function renderLogin(msg) {
   $('app').innerHTML = `<form class="login panel" id="loginForm">
     <h1>Waikato Interlocks</h1><div class="empty">Staff login</div>
     ${msg ? `<div class="alert">${esc(msg)}</div>` : ''}
-    <label class="label" for="em">Email</label><input id="em" type="email" autocomplete="username" autocapitalize="off" spellcheck="false" required>
+    <label class="label" for="em">Email</label><input id="em" type="email" autocomplete="username" required>
     <label class="label" for="pw">Password</label><input id="pw" type="password" autocomplete="current-password" required>
-    <button class="btn brand" id="loginBtn">Log in</button>
-    <div id="loginMsg" class="alert" hidden></div>
-    <div class="empty" style="font-size:.75rem;margin-top:10px">build 2026-11-17 01:38 UTC</div></form>`;
-  const btn = $('loginBtn'), box = $('loginMsg');
-  const fail = m => { btn.disabled = false; btn.textContent = 'Log in'; box.textContent = m; box.hidden = false; };
+    <button class="btn brand" id="loginBtn">Log in</button></form>`;
   $('loginForm').onsubmit = async e => {
-    e.preventDefault(); box.hidden = true; btn.disabled = true; btn.textContent = 'Signing in…';
-    try {
-      const { error } = await withTimeout(db.auth.signInWithPassword({ email: $('em').value.trim().toLowerCase(), password: $('pw').value }), 15000, 'Login');
-      if (error) return fail(error.message === 'Invalid login credentials' ? 'Wrong email or password.' : error.message);
-      btn.textContent = 'Loading…';
-      await start();
-    } catch (err) { fail(errMsg(err)); }
+    e.preventDefault(); $('loginBtn').disabled = true;
+    const { error } = await db.auth.signInWithPassword({ email: $('em').value.trim(), password: $('pw').value });
+    if (error) { $('loginBtn').disabled = false; return toast(error.message, true); }
+    start();
   };
 }
 
@@ -708,7 +563,7 @@ async function loadSessions() {
   if (!S.date || !dates.includes(S.date)) S.date = dates.find(d => d >= today) || dates[0];
   await loadBookings();
 }
-async function loadBookings(noLock) {
+async function loadBookings() {
   const { data, error } = await db.from('bookings')
     .select('*, customer:customers(*)')
     .eq('session_date', S.date).neq('status', 'cancelled').order('start_min');
@@ -717,52 +572,43 @@ async function loadBookings(noLock) {
   let pays = [];
   if (ids.length) { const r = await db.from('payments').select('*').in('booking_id', ids); pays = r.data || []; }
   data.forEach(b => b.payments = pays.filter(p => p.booking_id === b.id));
-  const vids = [...new Set(data.map(b => b.vehicle_id).filter(Boolean))]; let vehs = [];
-  if (vids.length) { const r = await db.from('customer_vehicles').select('*').in('id', vids); vehs = r.data || []; }
-  data.forEach(b => b.vehicle = vehs.find(v => v.id === b.vehicle_id) || null);
-  const ocids = [...new Set(data.map(b => b.customer_id))]; let ovs = [];
-  if (ocids.length) { const r = await db.from('service_due_overrides').select('*').in('customer_id', ocids); ovs = r.data || []; }
-  data.forEach(b => { if (b.customer) b.customer.due_overrides = ovs.filter(o => o.customer_id === b.customer_id); });
-  const cids = [...new Set(data.map(b => b.customer_id))]; let bills = [];
-  if (cids.length) { const r = await db.from('bills').select('id,customer_id,booking_id,description,amount_cents,status,sent_via,created_at').in('customer_id', cids).neq('status', 'cancelled'); bills = r.data || []; }
-  data.forEach(b => { b.bill = bills.find(x => x.booking_id === b.id); b.owing = bills.filter(x => x.customer_id === b.customer_id && x.status === 'sent' && x.booking_id !== b.id); });
   S.bookings = data;
-  await loadPriceReqs();
-  // On the day itself, approved removals take their solid time (once, then reload).
-  if (!noLock && S.date === nzToday()) {
-    const locs = [...new Set(data.filter(b => floating(b) && b.approved_at).map(b => b.location_id))];
-    if (locs.length) {
-      const rs = await Promise.all(locs.map(l => db.rpc('lock_removals', { p_location: l, p_date: S.date })));
-      if (rs.every(r => !r.error)) { toast('Approved removals now have their time locked in'); return loadBookings(true); }
-    }
-  }
+  await loadCredits([...new Set(data.map(b => b.customer_id))]);
 }
+// Account credit per customer (sum of customer_credits rows: + added, − used). Needs step3 SQL.
+async function loadCredits(custIds) {
+  if (!custIds.length) return;
+  const { data, error } = await db.from('customer_credits').select('customer_id, amount_cents').in('customer_id', custIds);
+  if (error) { S.creditsOff = true; return; } // table not created yet — credit features hidden
+  S.creditsOff = false;
+  custIds.forEach(id => S.credits[id] = 0);
+  (data || []).forEach(r => S.credits[r.customer_id] = (S.credits[r.customer_id] || 0) + r.amount_cents);
+}
+// Checkout line helpers. A line is { id?, name, price (each, $), qty }.
+const lineTotal = l => Math.round(l.price * l.qty * 100) / 100;
+const linesSum = ls => ls.reduce((a, l) => a + lineTotal(l), 0);
+const asLine = id => ({ id, name: SVC(id).name, price: SVC(id).price, qty: 1 });
 
 // ---------- render ----------
 function render() {
   $('app').innerHTML = `<header class="top"><h1>Run sheet</h1>
-      <span class="tools"><button class="chip" id="refresh">Refresh</button><button class="chip" id="logout">Log out</button></span>
       <nav class="tabs"><button class="chip" aria-pressed="${S.view==='run'}" data-v="run">Sessions</button>
-        <button class="chip" aria-pressed="${S.view==='cust'}" data-v="cust">Customers${S.todo ? `<span class="n">${S.todo}</span>` : ''}</button>
-        <button class="chip" aria-pressed="${S.view==='sched'}" data-v="sched">Schedule</button>
-        <button class="chip" aria-pressed="${S.view==='texts'}" data-v="texts">Messages</button></nav></header>
+        <button class="chip" aria-pressed="${S.view==='cust'}" data-v="cust">Customers</button>
+        <button class="chip" id="refresh">Refresh</button><button class="chip" id="logout">Log out</button></nav></header>
     <div id="body"></div>`;
   document.querySelectorAll('[data-v]').forEach(b => b.onclick = () => { S.view = b.dataset.v; render(); });
   $('refresh').onclick = async () => { await loadSessions(); render(); toast('Updated'); };
   $('logout').onclick = async () => { await db.auth.signOut(); renderLogin(); };
-  S.view === 'run' ? renderRun() : S.view === 'sched' ? renderSchedule() : S.view === 'texts' ? renderTexts() : renderCustomers();
+  S.view === 'run' ? renderRun() : renderCustomers();
 }
 
 function profileFlag(c, b) {
-  return [PR(c.id) ? 'Price request waiting' : '', c.self_registered ? 'New app sign-up — check details' : '', profileFlag0(c, b)].filter(Boolean).join(' · ');
-}
-function profileFlag0(c, b) {
   if (b.kind === 'removal') {
     if (b.details?.temporary) return `Temporary removal · NZTA approval ${b.details.nztaApprovalRef || '?'}`;
     const z = b.details?.zeroAlcoholLicencePhoto;
     return !z ? 'No zero alcohol licence photo yet' : z === 'seen in person by staff' ? 'Zero alcohol licence seen by staff' : 'Zero alcohol licence photo attached — check before removing';
   }
-  const e = engV(c, b.vehicle), allowed = allowedServices(e, services, b.session_date);
+  const e = eng(c), allowed = allowedServices(e, services, b.session_date);
   if (!allowed.some(s => s.id === b.service_id) && SVC(b.service_id).group === 'service') {
     const should = allowed.find(s => s.group === 'service');
     return should ? `Booked ${SVC(b.service_id).name} — should now be ${should.name} ${money(should.price)}` : '';
@@ -779,96 +625,35 @@ function renderRun() {
      const sess = { start: s.start_min, end: s.end_min, slotMins: s.slot_mins, removalSlots: s.removal_slots, removalMins: s.removal_mins };
      const bs = S.bookings.filter(b => b.location_id === s.location_id && b.kind === 'service' && b.source !== 'walkin');
      const ws = S.bookings.filter(b => b.location_id === s.location_id && b.source === 'walkin');
-     const rs = S.bookings.filter(b => b.location_id === s.location_id && b.kind === 'removal');   // floating + locked
+     const rs = S.bookings.filter(b => b.location_id === s.location_id && b.kind === 'removal');
      const taken = S.bookings.filter(b => b.location_id === s.location_id).reduce((a, b) => a + b.payments.reduce((x, p) => x + p.amount_cents, 0), 0) / 100;
-     const est = estFor(s);
-     const rTime = b => floating(b) ? (est.get(b.id) ?? b.start_min) : b.start_min;
-     const held = t => rs.find(b => !floating(b) && b.start_min <= t && t < b.start_min + b.duration_mins);
      const row = (t, b) => {
-       if (!b) { const h = held(t); return `<tr class="free"><td class="t">${fmtTime(t)}</td><td colspan="5">${h ? `— held for removal · ${esc(fullName(h.customer || {}))} —` : '— free —'}</td></tr>`; }
-       const c = b.customer || {}, flag = profileFlag(c, b), fl = floating(b);
-       const pill = fl ? (b.approved_at ? ['pencilled', 'Approved · time not locked'] : ['pencilled', 'Needs approval'])
-         : b.kind === 'service' && b.status === 'pencilled' ? ['pencilled', 'Request · confirm?'] : [b.status, STATUS[b.status] || b.status];
-       return `<tr class="row ${b.id===S.sel?'sel':''}" data-b="${b.id}"><td class="t">${fl ? '≈ ' + fmtTime(rTime(b)) : fmtTime(b.start_min)}</td>
-         <td><b>${esc(fullName(c))}</b>${b.vehicle ? ` <span class="empty">· ${esc(b.vehicle.label)}</span>` : ''}<span class="m-only empty">Installed ${yDate(b.vehicle ? b.vehicle.install_date : c.install_date)} · ${esc(SVC(b.service_id).name)} · ${money(b.price_cents/100)}</span>${flag?`<span class="flag" style="display:block">⚑ ${esc(flag)}</span>`:''}</td><td class="t d-only">${yDate(b.vehicle ? b.vehicle.install_date : c.install_date)}</td>
-         <td class="d-only">${esc(SVC(b.service_id).name)}</td><td class="t d-only">${money(b.price_cents/100)}</td><td><span class="pill p-${pill[0]}">${pill[1]}</span></td></tr>`;
+       if (!b) return `<tr class="free"><td class="t">${fmtTime(t)}</td><td colspan="5">— free —</td></tr>`;
+       const c = b.customer || {}, flag = profileFlag(c, b);
+       return `<tr class="row ${b.id===S.sel?'sel':''}" data-b="${b.id}"><td class="t">${fmtTime(b.start_min)}</td>
+         <td><b>${esc(fullName(c))}</b><span class="m-only empty">Installed ${yDate(c.install_date)} · ${esc(SVC(b.service_id).name)} · ${money(b.price_cents/100)}</span>${flag?`<span class="flag" style="display:block">⚑ ${esc(flag)}</span>`:''}</td><td class="t d-only">${yDate(c.install_date)}</td>
+         <td class="d-only">${esc(SVC(b.service_id).name)}</td><td class="t d-only">${money(b.price_cents/100)}</td><td><span class="pill p-${b.status}">${STATUS[b.status]||b.status}</span></td></tr>`;
      };
      const times = slotTimes(sess);
-     return `<div class="session"><div class="s-head"><h3>${esc(LOC(s.location_id))} <span class="t" style="font-size:.9rem;color:var(--muted)">${fmtTime(s.start_min)}–${fmtTime(s.end_min)}</span>${s.request_only ? ' <span class="pill p-pencilled">Request only</span>' : ''}${s.fill_backwards ? ' <span class="empty" style="font-size:.8rem">books from the last slot back</span>' : ''}</h3>
+     return `<div class="session"><div class="s-head"><h3>${esc(LOC(s.location_id))} <span class="t" style="font-size:.9rem;color:var(--muted)">${fmtTime(s.start_min)}–${fmtTime(s.end_min)}</span></h3>
        <span class="empty">${bs.length} of ${times.length} booked${rs.length?` · ${rs.length} removal${rs.length>1?'s':''}`:''} · taken ${money(taken)}</span></div>
        ${(s.notes||[]).length?`<div class="alert" style="background:var(--warn-soft);color:var(--ink)">${esc(s.notes.join('; '))}</div>`:''}
        <div class="meter"><i style="width:${Math.round(bs.length/times.length*100)}%"></i></div>
        <div class="tablewrap"><table><thead><tr><th>Time</th><th>Customer</th><th class="d-only">Installed</th><th class="d-only">Service</th><th class="d-only">Price</th><th>Status</th></tr></thead><tbody>
        ${times.map(t => row(t, bs.find(b => b.start_min === t))).join('')}
-       <tr><td colspan="6" class="label" style="padding-top:12px">Removals · ${rs.length} of ${s.removal_slots} · ≈ times move as services book, until approved and locked on the day</td></tr>
-       ${[...rs].sort((a, b) => rTime(a) - rTime(b)).map(b => row(0, b)).join('') || '<tr class="free"><td class="t"></td><td colspan="5">— none requested —</td></tr>'}
+       <tr><td colspan="6" class="label" style="padding-top:12px">Removals · after servicing</td></tr>
+       ${removalTimes(sess).map(t => row(t, rs.find(b => b.start_min === t))).join('')}
        ${ws.length ? `<tr><td colspan="6" class="label" style="padding-top:12px">Walk-ins</td></tr>${ws.map(b => row(b.start_min, b)).join('')}` : ''}
        </tbody></table></div>
-       <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap"><button class="btn" data-walk="${s.location_id}">+ Walk-in sale</button><button class="btn ghost" data-add="${s.location_id}">+ Add booking</button><button class="btn ghost" data-msg="${s.location_id}">Text this session</button></div></div>`;
+       <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap"><button class="btn" data-walk="${s.location_id}">+ Walk-in sale</button><button class="btn ghost" data-add="${s.location_id}">+ Add booking</button></div></div>`;
    }).join('') : '<div class="empty">No sessions this day.</div>'}</div>
    <aside class="panel side" id="side"></aside></div>`;
   document.querySelectorAll('[data-d]').forEach(b => b.onclick = async () => { S.date = b.dataset.d; S.sel = null; await loadBookings(); renderRun(); });
-  document.querySelectorAll('tr.row').forEach(tr => tr.onclick = () => { S.sel = tr.dataset.b; S.extras = []; renderRun(); });
+  document.querySelectorAll('tr.row').forEach(tr => tr.onclick = () => { S.sel = tr.dataset.b; S.extras = []; S.useCredit = false; renderRun(); });
   document.querySelectorAll('[data-add]').forEach(b => b.onclick = () => { renderAddBooking(b.dataset.add); showSide(); });
   document.querySelectorAll('[data-walk]').forEach(b => b.onclick = () => { renderAddBooking(b.dataset.walk, true); showSide(); });
-  document.querySelectorAll('[data-msg]').forEach(b => b.onclick = () => { renderMessage(b.dataset.msg); showSide(); });
-  document.querySelector('.datebar [aria-pressed="true"]')?.scrollIntoView({ inline: 'center', block: 'nearest' });
   if (S.sel) showSide();
   renderSide();
-}
-
-// ---------- bills the customer can pay online (Stripe) ----------
-const NO_SHOW_FEE = 40;
-const billDay = t => new Date(t).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', timeZone: 'Pacific/Auckland' });
-// After this visit: when the next service is due. Matt can move that one month (e.g. over Christmas).
-function nextDueBox(b, ev) {
-  if (b.kind !== 'service' || SVC(b.service_id).group !== 'service') return '';
-  const w0 = serviceWindow(ev, b.session_date), nx = w0 ? serviceWindow(ev, addDays(w0.closes, 1)) : null;
-  if (!nx) return '';
-  const xmas = nx.normalDue >= XMAS_FROM && nx.normalDue <= XMAS_TO && !nx.moved;
-  return `<div class="alert" id="ndBox" style="background:${xmas ? 'var(--bad-soft)' : 'var(--bg)'};color:var(--ink)">
-    <b>Next service due: <span style="color:var(--bad)">${yDate(nx.due)}</span></b>${nx.moved ? ` <span class="empty">(moved from ${yDate(nx.normalDue)})</span>` : ''}
-    ${xmas ? '<br><b style="color:var(--bad)">This falls over Christmas. Pick a new date for this one month.</b>' : ''}
-    <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;align-items:center"><input type="date" id="ndDate" value="${nx.due}" style="flex:1;min-width:140px">
-      <button class="btn ${xmas ? 'brand' : 'ghost'}" id="ndSet" data-normal="${nx.normalDue}">Set next service date</button>
-      ${nx.moved ? `<button class="chip" id="ndUndo" data-normal="${nx.normalDue}">Back to ${yDate(nx.normalDue)}</button>` : ''}</div>
-    <div class="empty" style="margin-top:4px">Only this one month moves. Reminders follow the new date.</div></div>`;
-}
-async function setNextDue(b, normal, due) {
-  const vid = b.vehicle_id || null;
-  let del = db.from('service_due_overrides').delete().eq('customer_id', b.customer_id).eq('normal_due', normal);
-  del = vid ? del.eq('vehicle_id', vid) : del.is('vehicle_id', null);
-  const { error: e1 } = await del; if (e1) return toast(errMsg(e1), true);
-  if (due && due !== normal) {
-    const { error } = await db.from('service_due_overrides').insert({ customer_id: b.customer_id, vehicle_id: vid, normal_due: normal, due });
-    if (error) return toast(errMsg(error), true);
-  }
-  toast(due && due !== normal ? 'Next service moved to ' + yDate(due) : 'Next service back to ' + yDate(normal)); await loadBookings(); renderRun();
-}
-function billBox(b, paid) {
-  const via = x => x.sent_via === 'sms' ? 'text' : 'email';
-  let h = (b.owing || []).map(x => `<div class="alert" style="background:var(--warn-soft);color:var(--ink)">Owes ${money(x.amount_cents / 100)} — ${esc(x.description)}. Bill sent ${billDay(x.created_at)}, not paid yet.
-      <div style="margin-top:6px"><button class="chip" data-bcancel="${x.id}">Paid here / cancel bill</button></div></div>`).join('');
-  if (b.bill && b.bill.status === 'sent') h += `<div class="alert" style="background:var(--warn-soft);color:var(--ink)">${money(b.bill.amount_cents / 100)} bill sent by ${via(b.bill)} ${billDay(b.bill.created_at)} — not paid yet.
-      <div style="display:flex;gap:6px;margin-top:6px"><button class="chip" id="nsBill">Send again</button><button class="chip" data-bcancel="${b.bill.id}">Cancel bill</button></div></div>`;
-  else if (b.status === 'no_show' && !paid) h += `<div style="margin-top:8px"><button class="btn" id="nsBill" style="width:100%">Send ${money(NO_SHOW_FEE)} no-show bill</button>
-      <div class="empty">Emails them a link to pay online by card (text if no email).</div></div>`;
-  return h;
-}
-function wireBills(el, b, after) {
-  const ns = $('nsBill');
-  if (ns) ns.onclick = async () => {
-    ns.disabled = true;
-    const { data, error } = await db.rpc('send_bill', { p_customer: b.customer_id, p_booking: b.id, p_amount_cents: NO_SHOW_FEE * 100, p_description: 'No-show fee, ' + longDate(b.session_date) });
-    if (error) { ns.disabled = false; return toast(errMsg(error), true); }
-    toast('Bill sent by ' + (data?.via === 'sms' ? 'text' : 'email')); after();
-  };
-  el.querySelectorAll('[data-bcancel]').forEach(x => x.onclick = async () => {
-    x.disabled = true;
-    const { error } = await db.rpc('cancel_bill', { p_bill: x.dataset.bcancel });
-    if (error) { x.disabled = false; return toast(errMsg(error), true); }
-    toast('Bill cancelled — they can no longer pay it online'); after();
-  });
 }
 
 function renderSide() {
@@ -882,78 +667,78 @@ function renderSide() {
       $('iqOut').innerHTML = q.lines.map(l => `<div class="co-line"><span>${esc(l.name)}</span><span class="t">${money(l.price)}</span></div>`).join('') + `<div class="co-total"><span>Total</span><span class="t">${money(q.total)}</span></div>`; };
     ['iqCx','iqSub','iqTp'].forEach(id => $(id).onchange = calc); calc(); return;
   }
-  const c = b.customer || {}, d = customerDates(eng(c), b.session_date), ev = engV(c, b.vehicle), dv = customerDates(ev, b.session_date), paid = b.payments.length > 0;
-  const total = Math.round((b.price_cents / 100 + S.extras.reduce((a, x) => a + xPrice(x), 0)) * 100) / 100;
+  const scrollWas = el.scrollTop;
+  const c = b.customer || {}, d = customerDates(eng(c), b.session_date), paid = b.payments.length > 0;
+  const gross = b.price_cents / 100 + linesSum(S.extras);
+  const creditBal = (S.credits[b.customer_id] || 0) / 100;
+  const creditUse = !paid && S.useCredit ? Math.max(0, Math.min(creditBal, gross)) : 0;
+  const total = Math.round((gross - creditUse) * 100) / 100;
+  const paidTotal = b.payments.reduce((a,p)=>a+p.amount_cents,0)/100;
+  const paidLines = b.details?.lines || [];
+  const isMisc = b.service_id === 'misc';
   const flag = profileFlag(c, b);
-  const fl = floating(b), sRow = S.sessions.find(x => x.session_date === b.session_date && x.location_id === b.location_id);
-  const when = fl ? '≈ ' + fmtTime((sRow && estFor(sRow).get(b.id)) ?? b.start_min) : fmtTime(b.start_min);
-  el.innerHTML = `<div class="label">${esc(LOC(b.location_id))} · ${longDate(b.session_date)} · <span class="t">${when}</span></div>
-    <h2 style="font-size:1.5rem;cursor:pointer" id="edN" title="Open customer details">${esc(fullName(c))} <span style="font-size:1rem;color:var(--brand)">✎</span></h2><div class="empty">${esc(c.mobile || '')}</div>
-    ${b.vehicle || c.vehicle ? `<div style="font-weight:700;margin-top:4px">Vehicle: ${esc(vLabel(c, b.vehicle))}</div>` : ''}
-    <div style="margin:8px 0"><button class="btn ghost" id="edC" style="width:100%">Open and edit customer details</button></div>
-    ${priceReqBox(c)}
-    <div class="facts"><div class="fact"><div class="label">Installed</div><div class="v">${yDate(ev.installDate)}</div></div>
-      <div class="fact"><div class="label" style="color:var(--bad)">Service date</div><div class="v" style="color:var(--bad)">${(w => w ? yDate(w.due) : '—')(serviceWindow(ev, b.session_date))}</div></div>
-      <div class="fact"><div class="label">Subsidy</div><div class="v">${dv.subsidyActive ? (dv.subsidyOverdue ? 'Active<br><span class="flag" style="color:var(--warn)">15 months passed ' + yDate(dv.subsidyEnds) + ' — on until Dräger emails</span>' : dv.subsidyEnds ? 'Until ' + yDate(dv.subsidyEnds) : 'Active') : 'None'}</div></div>
-      <div class="fact"><div class="label">Theft protection</div><div class="v">${ev.theftProtection ? 'Yes' : 'No'}</div></div>
-      <div class="fact"><div class="label">Apply date</div><div class="v">${yDate(d.exitEligible)}${c.apply_date_set_by==='customer'?'<br><span class="flag" style="color:var(--warn)">NZTA date, set by customer</span>':''}</div></div></div>
+  el.innerHTML = `<div class="label">${esc(LOC(b.location_id))} · ${longDate(b.session_date)} · <span class="t">${fmtTime(b.start_min)}</span></div>
+    <h2 style="font-size:1.5rem">${esc(fullName(c))}</h2><div class="empty">${esc(c.mobile || '')}</div>
+    <div class="facts"><div class="fact"><div class="label">Installed</div><div class="v">${yDate(c.install_date)}</div></div>
+      <div class="fact"><div class="label">Apply date</div><div class="v">${yDate(d.exitEligible)}${c.apply_date_set_by==='customer'?'<br><span class="flag" style="color:var(--warn)">NZTA date, set by customer</span>':''}</div></div>
+      <div class="fact"><div class="label">Subsidy</div><div class="v">${d.subsidyEnds ? (d.subsidyActive?'Until ':'Ended ') + yDate(d.subsidyEnds) : 'None'}</div></div>
+      <div class="fact"><div class="label">Theft protection</div><div class="v">${c.theft_protection ? 'Yes' : 'No'}</div></div></div>
     ${flag ? `<div class="alert">⚑ ${esc(flag)}</div>` : ''}
-    ${nextDueBox(b, ev)}
-    ${billBox(b, paid)}
-    ${fl && !b.approved_at ? `<div class="alert" style="background:var(--warn-soft);color:var(--ink)">Placeholder only — no time is held. It moves later if a service books that time.</div>
-      <div class="grid2"><button class="btn brand" id="apRem">Approve removal</button><button class="btn ghost" data-st="cancelled">Decline</button></div>` : ''}
-    ${fl && b.approved_at ? `<div class="alert" style="background:var(--warn-soft);color:var(--ink)">Approved. The time is still approximate and locks in on the morning of the session.</div>
-      <div class="grid2"><button class="btn" id="lockRem">Lock time now</button><button class="btn ghost" data-st="cancelled">Decline</button></div>` : ''}
-    ${!fl && b.status === 'pencilled' ? `${b.kind === 'service' ? '<div class="alert" style="background:var(--warn-soft);color:var(--ink)">Late request, made after online bookings closed. The customer has been told not to come until you confirm. They get an email either way.</div>' : ''}<div class="grid2"><button class="btn brand" data-st="confirmed">${b.kind === 'removal' ? 'Accept removal' : 'Confirm request'}</button><button class="btn ghost" data-st="cancelled">Decline</button></div>` : ''}
-    <div style="margin-top:10px"><div class="co-line"><span>${esc(b.details?.temporary ? 'Temporary removal' : SVC(b.service_id).name)}</span><span class="t">${money(b.price_cents/100)}</span></div>
-      ${S.extras.map((x, i) => `<div class="co-line"><span>${esc(xName(x))}${paid ? '' : ` <button class="chip" data-rx="${i}" title="Remove" style="padding:0 7px">×</button>`}</span><span class="t">${money(xPrice(x))}</span></div>`).join('')}
+    ${b.status === 'pencilled' ? `<div class="grid2"><button class="btn brand" data-st="confirmed">Accept removal</button><button class="btn ghost" data-st="cancelled">Decline</button></div>` : ''}
+    <div style="margin-top:10px">
+      ${isMisc && !b.price_cents ? '' : `<div class="co-line"><span>${esc(b.details?.temporary ? 'Temporary removal' : SVC(b.service_id).name)}${b.details?.price_note ? `<br><span class="empty">Price changed from ${money((b.details.orig_price_cents ?? 0)/100)} — ${esc(b.details.price_note)}</span>` : ''}</span>
+        <span class="t">${money(b.price_cents/100)}${paid ? '' : ' <button class="chip" id="chgPrice" title="Change price">Edit</button>'}</span></div><div id="priceBox"></div>`}
+      ${(paid ? paidLines : S.extras).map((l, i) => `<div class="co-line"><span>${esc(l.name)}${l.qty !== 1 ? ` <span class="empty t">${l.qty} × ${money(l.price)}</span>` : ''}</span><span class="t">${money(lineTotal(l))}${paid ? '' : ` <button class="x" data-rm="${i}" aria-label="Remove">✕</button>`}</span></div>`).join('')}
+      ${paid && b.details?.credit_used_cents ? `<div class="co-line credit"><span>Account credit used</span><span class="t">−${money(b.details.credit_used_cents/100)}</span></div>` : ''}
       ${paid ? '' : `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"><button class="chip" data-x="vr">+ Violation reset $100</button><button class="chip" data-x="vr-disc">+ Mech/battery $60</button>${S.extras.length?'<button class="chip" id="clrX">Clear</button>':''}</div>
       <div style="display:flex;gap:6px;margin-top:6px"><select id="moreFee" style="flex:1"><option value="">More Dräger charges…</option>
+        <optgroup label="Services">${services.filter(x=>['service','violation','removal','install','changeover'].includes(x.group)).map(x=>`<option value="${x.id}">${esc(x.name)} — ${money(x.price)}</option>`).join('')}</optgroup>
         <optgroup label="Fees">${services.filter(x=>x.group==='fee').map(x=>`<option value="${x.id}">${esc(x.name)} — ${money(x.price)}</option>`).join('')}</optgroup>
         <optgroup label="Damage">${services.filter(x=>x.group==='damage').map(x=>`<option value="${x.id}">${esc(x.name)} — ${money(x.price)}</option>`).join('')}</optgroup></select><button class="btn ghost" id="addFee">Add</button></div>
-      <div style="display:flex;gap:6px;margin-top:6px;align-items:center;flex-wrap:wrap"><b style="min-width:70px">Call-out</b>
-        <input id="coKm" type="number" inputmode="decimal" step="any" min="0" placeholder="km" style="width:80px"> km ×
-        $<input id="coRate" type="number" inputmode="decimal" step="0.01" min="0" placeholder="per km" value="${esc(lsGet('wi_co_rate'))}" style="width:80px">
-        <button class="btn ghost" id="addCo">Add</button></div>
-      <div style="display:flex;gap:6px;margin-top:6px;align-items:center;flex-wrap:wrap"><input id="lbN" value="Labour" placeholder="What for" style="min-width:70px;flex:1">
-        <input id="lbQ" type="number" inputmode="decimal" step="any" min="0" value="1" placeholder="qty / hrs" style="width:64px"> ×
-        $<input id="lbP" type="number" inputmode="decimal" step="0.01" min="0" placeholder="each" value="${esc(lsGet('wi_lb_rate'))}" style="width:80px">
-        <button class="btn ghost" id="addLb">Add</button></div>`}
-      <div class="co-total"><span>Total</span><span class="t">${money(paid ? b.payments.reduce((a,p)=>a+p.amount_cents,0)/100 : total)}</span></div>
-      <div class="empty">Includes GST ${money((paid ? b.payments.reduce((a,p)=>a+p.amount_cents,0)/100 : total) * 3 / 23)}</div></div>
-    ${paid ? `<div class="alert" style="background:var(--ok-soft);color:var(--ok)">Paid by ${esc(b.payments.map(p => p.method === 'online' ? 'card online (Stripe)' : p.method === 'card_terminal' ? 'EFTPOS' : p.method.replace(/_/g,' ')).join(', '))}.</div>
+      <div class="label" style="margin-top:10px">Custom line</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px"><button class="chip" data-cl="Travel">Travel</button><button class="chip" data-cl="General labour">General labour</button><button class="chip" data-cl="Discount">Discount</button></div>
+      <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;align-items:center"><input id="clName" placeholder="Description" style="flex:1 1 140px">
+        <input id="clQty" class="qty" type="number" step="any" value="1" title="Quantity (e.g. km or hours)" aria-label="Quantity"> ×
+        <input id="clPrice" class="amt" type="number" step="0.01" placeholder="$ each" title="Price each incl GST — negative for a discount" aria-label="Price each">
+        <button class="btn ghost" id="clAdd">Add</button></div>
+      ${!S.creditsOff && creditBal > 0 ? `<label class="chip credit" style="display:inline-flex;gap:6px;margin-top:10px"><input type="checkbox" id="useCr" ${S.useCredit?'checked':''}> Use account credit (${money(creditBal)} available)</label>` : ''}
+      ${creditUse ? `<div class="co-line credit"><span>Account credit</span><span class="t">−${money(creditUse)}</span></div>` : ''}`}
+      <div class="co-total"><span>Total</span><span class="t">${money(paid ? paidTotal : total)}</span></div>
+      <div class="empty">Includes GST ${money((paid ? paidTotal : total) * 3 / 23)}</div></div>
+    ${S.creditsOff ? '' : `<div style="margin-top:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">${creditBal > 0 && (paid || !S.useCredit) ? `<span class="empty credit">Account credit: ${money(creditBal)}</span>` : ''}<button class="chip" id="crOpen">Add / view account credit</button></div><div id="crBox" style="margin-top:6px"></div>`}
+    ${paid ? `<div class="alert" style="background:var(--ok-soft);color:var(--ok)">${paidTotal ? `Paid by ${esc(b.payments.map(p => p.method.replace(/_/g,' ')).join(', '))}.` : 'Covered by account credit.'}</div>
       <div id="undoBox" style="margin-top:8px"><button class="btn ghost" id="undoPay" style="width:100%">Cancel sale and redo</button></div>`
+      : creditUse > 0 && total === 0 ? `<div style="margin-top:12px"><button class="btn" data-pay="on_account" style="width:100%">Complete — covered by account credit</button></div>`
       : `<div class="label" style="margin-top:12px">Take payment</div><div class="grid2">
-        ${[['card_terminal','EFTPOS'],['cash','Cash'],['on_account','On account']].map(([v,l],i)=>`<button class="btn ${i?'ghost':''}" data-pay="${v}">${l}</button>`).join('')}</div>
+        ${[['card_terminal','Card terminal'],['tap_to_pay','Tap to Pay'],['cash','Cash'],['on_account','On account']].map(([v,l],i)=>`<button class="btn ${i?'ghost':''}" data-pay="${v}">${l}</button>`).join('')}</div>
         <div class="grid2"><button class="btn ghost" data-st="arrived">Arrived</button><button class="btn ghost" data-st="no_show">No-show</button></div>
         <div style="margin-top:6px"><button class="btn ghost" data-st="cancelled" style="width:100%">Cancel booking</button></div>`}`;
-  const backToRun = async () => { await loadBookings(true); renderRun(); };
-  $('edC').onclick = $('edN').onclick = () => { editCustomer(c, 'side', backToRun); showSide(); };
-  wirePriceReq(el, backToRun);
-  wireBills(el, b, backToRun);
-  el.querySelectorAll('[data-x]').forEach(x => x.onclick = () => { S.extras.push(x.dataset.x); renderSide(); });
-  const af = $('addFee'); if (af) af.onclick = () => { const v = $('moreFee').value; if (v) { S.extras.push(v); renderSide(); } };
+  el.scrollTop = scrollWas;
+  if (S.prefill && $('clName')) { $('clName').value = S.prefill; S.prefill = null; $('clQty').focus(); $('clQty').select(); }
+  el.querySelectorAll('[data-x]').forEach(x => x.onclick = () => { S.extras.push(asLine(x.dataset.x)); renderSide(); });
+  const af = $('addFee'); if (af) af.onclick = () => { const v = $('moreFee').value; if (v) { S.extras.push(asLine(v)); renderSide(); } };
   const cx = $('clrX'); if (cx) cx.onclick = () => { S.extras = []; renderSide(); };
-  el.querySelectorAll('[data-rx]').forEach(x => x.onclick = () => { S.extras.splice(+x.dataset.rx, 1); renderSide(); });
-  const addLine = (n, q, p, rateKey) => {
-    q = parseFloat(q); p = parseFloat(p);
-    if (!(q > 0) || !(p >= 0) || isNaN(p)) return toast('Enter a quantity and a price', true);
-    lsSet(rateKey, String(p)); S.extras.push({ n: (n || '').trim().slice(0, 60) || 'Other', q, p }); renderSide();
+  el.querySelectorAll('[data-rm]').forEach(x => x.onclick = () => { S.extras.splice(+x.dataset.rm, 1); renderSide(); });
+  el.querySelectorAll('[data-cl]').forEach(x => x.onclick = () => { $('clName').value = x.dataset.cl; $('clPrice').placeholder = x.dataset.cl === 'Discount' ? 'e.g. -20' : '$ each'; $('clPrice').focus(); });
+  const cla = $('clAdd'); if (cla) cla.onclick = () => {
+    const name = $('clName').value.trim(), qty = Number($('clQty').value), price = Number($('clPrice').value);
+    if (!name) return toast('Add a description', true);
+    if (!qty || !isFinite(qty)) return toast('Enter a quantity', true);
+    if ($('clPrice').value.trim() === '' || !isFinite(price)) return toast('Enter a price', true);
+    S.extras.push({ name, qty, price: Math.round(price * 100) / 100, custom: true }); renderSide();
   };
-  if ($('addCo')) $('addCo').onclick = () => addLine('Call-out', $('coKm').value, $('coRate').value, 'wi_co_rate');
-  if ($('addLb')) $('addLb').onclick = () => addLine($('lbN').value, $('lbQ').value, $('lbP').value, 'wi_lb_rate');
+  const ucr = $('useCr'); if (ucr) ucr.onchange = () => { S.useCredit = ucr.checked; renderSide(); };
+  const cro = $('crOpen'); if (cro) cro.onclick = () => { cro.remove(); creditPanel($('crBox'), b.customer_id, () => renderSide()); };
+  const cp = $('chgPrice'); if (cp) cp.onclick = () => {
+    $('priceBox').innerHTML = `<div style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0;align-items:center">
+      <input id="npPrice" class="amt" type="number" step="0.01" value="${(b.price_cents/100).toFixed(2)}" aria-label="New price">
+      <input id="npWhy" placeholder="Reason (shows on checkout)" style="flex:1 1 140px"><button class="btn ghost" id="npSave">Save</button><button class="chip" id="npCancel">✕</button></div>`;
+    $('npCancel').onclick = () => renderSide();
+    $('npSave').onclick = () => changePrice(b, Number($('npPrice').value), $('npWhy').value.trim());
+    $('npPrice').select();
+  };
   el.querySelectorAll('[data-st]').forEach(x => x.onclick = () => setStatus(b, x.dataset.st));
-  if ($('apRem')) $('apRem').onclick = async () => {
-    const { error } = await db.rpc('approve_removal', { p_booking: b.id }); if (error) return toast(errMsg(error), true);
-    toast(b.session_date === nzToday() ? 'Approved — time locked in' : 'Approved — time locks on the morning'); await loadBookings(); renderRun();
-  };
-  if ($('lockRem')) $('lockRem').onclick = async () => {
-    const { error } = await db.rpc('lock_removals', { p_location: b.location_id, p_date: b.session_date }); if (error) return toast(errMsg(error), true);
-    toast('Time locked in — services now book around it'); await loadBookings(true); renderRun();
-  };
-  el.querySelectorAll('[data-pay]').forEach(x => x.onclick = () => takePayment(b, x.dataset.pay, total));
-  if ($('ndSet')) $('ndSet').onclick = () => { const v = $('ndDate').value; if (!v) return toast('Pick a date', true); setNextDue(b, $('ndSet').dataset.normal, v); };
-  if ($('ndUndo')) $('ndUndo').onclick = () => setNextDue(b, $('ndUndo').dataset.normal, null);
+  el.querySelectorAll('[data-pay]').forEach(x => x.onclick = () => total < 0 ? toast('Total is below $0 — reduce the discount, or add the difference as account credit', true) : takePayment(b, x.dataset.pay, total, creditUse));
   const up = $('undoPay'); if (up) up.onclick = () => {
     $('undoBox').innerHTML = `<div class="alert">Cancel this ${money(b.payments.reduce((a,p)=>a+p.amount_cents,0)/100)} sale? Refund any card payment on the terminal yourself.</div>
       <div class="grid2"><button class="btn" id="undoYes">Yes, cancel sale</button><button class="btn ghost" id="undoNo">Keep it</button></div>`;
@@ -961,101 +746,30 @@ function renderSide() {
     $('undoYes').onclick = () => undoPayment(b);
   };
 }
-function priceReqBox(c) {
-  const r = PR(c.id); if (!r) return '';
-  const asked = [r.wants_subsidy ? 'Has the subsidy' : null, r.no_theft_protection ? 'No theft protection' : null].filter(Boolean).join(' · ') || 'Price change';
-  return `<div class="alert" style="background:var(--warn-soft);color:var(--ink)"><b>Price request:</b> ${esc(asked)}${r.note ? `<br>“${esc(r.note)}”` : ''}
-    ${r.wants_subsidy && !c.install_date ? '<br><b>No install date on file</b> — add it or the subsidy price will not apply.' : ''}
-    <div class="grid2" style="margin-top:8px"><button class="btn brand" data-pr="yes" data-prid="${r.id}">Approve</button><button class="btn ghost" data-pr="no" data-prid="${r.id}">Decline</button></div>
-    <div class="empty">Approving updates their record and bookings, and emails them (or texts if no email).</div></div>`;
-}
-function wirePriceReq(el, after) {
-  el.querySelectorAll('[data-pr]').forEach(x => x.onclick = async () => {
-    el.querySelectorAll('[data-pr]').forEach(y => y.disabled = true);
-    const { error } = await db.rpc('decide_price_request', { p_id: x.dataset.prid, p_approve: x.dataset.pr === 'yes' });
-    if (error) { toast(errMsg(error), true); } else toast(x.dataset.pr === 'yes' ? 'Approved — price updated and customer told' : 'Declined — customer told');
-    await loadPriceReqs(); after();
-  });
-}
-function renderMessage(locId) {
-  const el = $('side'), who = [...new Map(S.bookings.filter(b => b.location_id === locId && ['pencilled','confirmed','arrived'].includes(b.status) && (b.customer?.mobile || b.customer?.email)).map(b => [b.customer_id, b.customer])).values()];
-  el.innerHTML = `<div class="label">${esc(LOC(locId))} · ${longDate(S.date)}</div><h2>Text this session</h2>
-    <p class="empty">Goes to ${who.length} customer${who.length === 1 ? '' : 's'} booked in this session${who.length ? ': ' + esc(who.map(c => c.first_name || fullName(c)).join(', ')) : ''}. Sent by email; anyone without an email address gets a text.</p>
-    <div style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0">${['Running about 15 minutes late today, sorry.', 'Today\'s session is cancelled, sorry. Please rebook in the app.', 'Change of location today: '].map(t => `<button class="chip" data-tpl="${esc(t)}">${esc(t.slice(0, 26))}…</button>`).join('')}</div>
-    <textarea id="msgT" rows="4" style="width:100%" maxlength="300" placeholder="Your message"></textarea>
-    <label style="display:flex;align-items:center;gap:8px;margin-top:8px"><input type="checkbox" id="msgAll" ${S.date === nzToday() ? 'checked' : ''}> Text everyone as well (urgent, costs a text each)</label>
-    <div class="empty">Texts get “Waikato Interlocks. Reply STOP to OptOut (20c)” added to the end.</div>
-    <div class="grid2" style="margin-top:8px"><button class="btn brand" id="msgGo" ${who.length ? '' : 'disabled'}>Send to ${who.length}</button><button class="btn ghost" id="msgNo">Back</button></div><div id="msgSure"></div>`;
-  el.querySelectorAll('[data-tpl]').forEach(b => b.onclick = () => { $('msgT').value = b.dataset.tpl; $('msgT').focus(); });
-  $('msgNo').onclick = () => renderSide();
-  $('msgGo').onclick = () => {
-    const m = $('msgT').value.trim(); if (m.length < 3) return toast('Type a message first', true);
-    $('msgSure').innerHTML = `<div class="alert">Send this text to ${who.length} customer${who.length === 1 ? '' : 's'} now?</div><div class="grid2"><button class="btn" id="msgYes">Yes, send</button><button class="btn ghost" id="msgCancel">Not yet</button></div>`;
-    $('msgCancel').onclick = () => { $('msgSure').innerHTML = ''; };
-    $('msgYes').onclick = async () => {
-      $('msgYes').disabled = true;
-      const { data, error } = await db.rpc('message_session', { p_location: locId, p_date: S.date, p_message: m, p_text_all: $('msgAll').checked });
-      if (error) { $('msgYes').disabled = false; return toast(errMsg(error), true); }
-      toast('Sent: ' + data.emails + ' email' + (data.emails === 1 ? '' : 's') + ', ' + data.texts + ' text' + (data.texts === 1 ? '' : 's')); renderSide();
-    };
-  };
-}
-// ---------- Google Calendar: bookings copied to the business calendar within about a minute ----------
-async function renderGcal() {
-  const box = $('gcBox'); if (!box) return;
-  const { data: g, error } = await db.rpc('gcal_status');
-  if (error) { box.textContent = /gcal_status/.test(errMsg(error)) ? 'Not set up yet.' : errMsg(error); return; }
-  const when = t => t ? new Date(t).toLocaleString('en-NZ', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', timeZone: 'Pacific/Auckland' }) : 'never';
-  if (!g.ready) { box.innerHTML = 'Not set up yet. The Google details (google_client_id and google_client_secret) need adding to the Supabase Vault first.'; return; }
-  if (!g.connected) {
-    box.innerHTML = `<p>Not connected. Connecting copies every booking, change and cancellation to your Google calendar within about a minute.</p><button class="btn" id="gcGo">Connect Google Calendar</button>
-      <p class="empty" style="margin-top:6px">Sign in as the business Google account when Google asks.</p>`;
-    $('gcGo').onclick = async () => { $('gcGo').disabled = true; const r = await db.rpc('gcal_auth_url'); if (r.error) { $('gcGo').disabled = false; return toast(errMsg(r.error), true); }
-      location.href = r.data; };
-    return;
-  }
-  box.innerHTML = `<p><b>Connected.</b> Last copied ${when(g.last_sync_at)}${g.waiting ? ' · ' + g.waiting + ' waiting' : ''}${g.failed ? ' · <span style="color:var(--bad)">' + g.failed + ' could not be copied</span>' : ''}.</p>
-    ${g.last_error ? `<div class="alert">${esc(g.last_error)}</div>` : ''}<button class="chip" id="gcOff">Disconnect</button>`;
-  $('gcOff').onclick = async () => {
-    if ($('gcOff').dataset.sure !== '1') { $('gcOff').dataset.sure = '1'; $('gcOff').textContent = 'Tap again to disconnect'; return; }
-    const r = await db.rpc('gcal_disconnect'); if (r.error) return toast(errMsg(r.error), true); toast('Disconnected. Events already in Google stay there.'); renderGcal();
-  };
-}
-// Coming back from Google's approval screen: hand the one-time code to the database, then tidy the address.
-async function finishGcalConnect() {
-  const q = new URLSearchParams(location.search), code = q.get('code'), state = q.get('state'), gerr = q.get('error');
-  if (!code && !gerr) return;
-  history.replaceState(null, '', location.pathname);
-  if (gerr) return toast('Google Calendar was not connected: ' + gerr, true);
-  const { error } = await db.rpc('gcal_connect', { p_code: code, p_state: state });
-  toast(error ? errMsg(error) : 'Google Calendar connected. Bookings will appear there shortly.', !!error);
-}
-async function renderTexts() {
-  $('body').innerHTML = `<div class="panel"><h2>Messages sent</h2>
-    <form id="teF" style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0"><input id="teTo" type="email" placeholder="Send a test email to…" style="flex:1;min-width:200px" required><button class="btn ghost">Send test email</button></form>
-    <div class="list" id="tlist"><div class="empty">Loading…</div></div></div>
-    <div class="panel" style="margin-top:12px"><h2>Google Calendar</h2><div id="gcBox" class="empty">Checking…</div></div>`;
-  renderGcal();
-  $('teF').onsubmit = async e => { e.preventDefault(); const { error } = await db.rpc('send_test_email', { p_to: $('teTo').value.trim() }); if (error) return toast(errMsg(error), true); toast('Test email sent'); renderTexts(); };
-  const [sm, em] = await Promise.all([
-    db.from('sms_log').select('*, customer:customers(first_name,last_name)').order('id', { ascending: false }).limit(60),
-    db.from('email_log').select('*, customer:customers(first_name,last_name)').order('id', { ascending: false }).limit(60)]);
-  if (sm.error || em.error) return toast(errMsg(sm.error || em.error), true);
-  const KIND = { login: 'Login code', session: 'Session message', reminder: 'Reminder', test: 'Test', notice: 'Notice', booking: 'Booking', removal: 'Removal', price: 'Price decision' };
-  const all = [...sm.data.map(t => ({ ...t, via: 'Text', to: t.to_phone, text: t.body })), ...em.data.map(t => ({ ...t, via: 'Email', to: t.to_email, text: t.subject + ' — ' + t.body }))]
-    .sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 80);
-  $('tlist').innerHTML = all.map(t => `<div class="item"><span><b>${esc(t.customer ? fullName(t.customer) : t.to)}</b> <span class="pill p-confirmed">${t.via}</span> <span class="empty">${KIND[t.kind] || esc(t.kind)}</span><br><span class="empty">${esc(t.text.slice(0, 220))}</span></span>
-    <span class="empty" style="text-align:right;white-space:nowrap">${new Date(t.created_at).toLocaleString('en-NZ', { timeZone: 'Pacific/Auckland', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}</span></div>`).join('') || '<div class="empty">Nothing sent yet</div>';
-}
 function showSide() { if (matchMedia('(max-width:960px)').matches) setTimeout(() => $('side')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); }
 async function undoPayment(b) {
   const { error } = await db.from('payments').delete().eq('booking_id', b.id);
   if (error) return toast(errMsg(error), true);
-  await db.from('bookings').update({ status: 'arrived' }).eq('id', b.id);
-  const pr = b.payments[0]?.provider_ref || '';
-  S.extras = pr.startsWith('extras2:') ? (() => { try { return JSON.parse(pr.slice(8)); } catch (e) { return []; } })()
-    : pr.startsWith('extras:') ? pr.slice(7).split(',') : [];
+  // Give back any account credit this sale used
+  if (b.details?.credit_used_cents && !S.creditsOff) await db.from('customer_credits').delete().eq('booking_id', b.id).lt('amount_cents', 0);
+  const { lines, credit_used_cents, ...rest } = b.details || {};
+  await db.from('bookings').update({ status: 'arrived', details: rest }).eq('id', b.id);
+  // Put the extra lines back so the sale can be redone (older sales only stored ids in provider_ref)
+  S.extras = lines ? lines.map(l => ({ ...l }))
+    : (b.payments[0]?.provider_ref || '').startsWith('extras:') ? b.payments[0].provider_ref.slice(7).split(',').filter(Boolean).map(asLine) : [];
+  S.useCredit = !!credit_used_cents;
   toast('Sale cancelled — redo it below'); await loadBookings(); renderRun();
+}
+// Change what this customer pays for the booked service (e.g. goodwill, agreed price). Keeps the original price + reason.
+async function changePrice(b, newPrice, why) {
+  if (!isFinite(newPrice) || newPrice < 0) return toast('Enter a price of $0 or more', true);
+  if (!why) return toast('Add a short reason', true);
+  const orig = b.details?.orig_price_cents ?? b.price_cents;
+  const details = { ...(b.details || {}), orig_price_cents: orig, price_note: why };
+  if (Math.round(newPrice * 100) === orig) { delete details.orig_price_cents; delete details.price_note; }
+  const { error } = await db.from('bookings').update({ price_cents: Math.round(newPrice * 100), details }).eq('id', b.id);
+  if (error) return toast(errMsg(error), true);
+  toast(`Price changed to ${money(newPrice)}`); await loadBookings(); renderRun();
 }
 
 async function setStatus(b, st) {
@@ -1065,13 +779,22 @@ async function setStatus(b, st) {
   if (st === 'cancelled') S.sel = null;
   await loadBookings(); renderRun();
 }
-async function takePayment(b, method, total) {
+async function takePayment(b, method, total, creditUse = 0) {
   document.querySelectorAll('[data-pay]').forEach(x => x.disabled = true);
+  const fail = e => { document.querySelectorAll('[data-pay]').forEach(x => x.disabled = false); toast(errMsg(e), true); };
+  const ids = S.extras.filter(l => l.id).map(l => l.id);
   const { error } = await db.from('payments').insert({ booking_id: b.id, customer_id: b.customer_id, amount_cents: Math.round(total * 100), method,
-    provider_ref: !S.extras.length ? null : S.extras.every(x => typeof x === 'string') ? 'extras:' + S.extras.join(',') : 'extras2:' + JSON.stringify(S.extras) });
-  if (error) { document.querySelectorAll('[data-pay]').forEach(x => x.disabled = false); return toast(errMsg(error), true); }
-  await db.from('bookings').update({ status: 'completed' }).eq('id', b.id);
-  S.extras = []; toast(`Paid ${money(total)}`); await loadBookings(); renderRun();
+    provider_ref: ids.length ? 'extras:' + ids.join(',') : null });
+  if (error) return fail(error);
+  if (creditUse > 0) {
+    const r = await db.from('customer_credits').insert({ customer_id: b.customer_id, booking_id: b.id, amount_cents: -Math.round(creditUse * 100), reason: 'Used at checkout' });
+    if (r.error) toast('Paid, but the credit could not be taken off their account: ' + errMsg(r.error), true);
+  }
+  // Every line (catalogue + custom, with qty) is kept on the booking for the receipt / Xero.
+  const details = { ...(b.details || {}), lines: S.extras, ...(creditUse > 0 ? { credit_used_cents: Math.round(creditUse * 100) } : {}) };
+  await db.from('bookings').update({ status: 'completed', details }).eq('id', b.id);
+  S.extras = []; S.useCredit = false;
+  toast(total ? `Paid ${money(total)}` : 'Completed — covered by account credit'); await loadBookings(); renderRun();
 }
 
 // ---------- add booking (staff) ----------
@@ -1099,27 +822,25 @@ async function renderAddBooking(locId, walkin = false) {
   };
   const search = async () => {
     const q = $('abQ').value.trim(); if (q.length < 2) { $('abList').innerHTML = ''; return; }
-    const { data } = await db.from('customers').select('*').or(await custSearchOr(q, false)).limit(8);
-    $('abList').innerHTML = (data||[]).map(c => `<div class="item" data-c="${c.id}"><span><b>${esc(fullName(c))}</b><br><span class="empty">${esc(c.mobile||'')}${c.vehicle ? ' · ' + esc(c.vehicle) : ''}</span></span><span class="empty">Installed ${yDate(c.install_date)}</span></div>`).join('') || '<div class="empty">No match</div>';
+    const like = `%${q}%`;
+    const { data } = await db.from('customers').select('*').or(`first_name.ilike.${like},last_name.ilike.${like},mobile.ilike.${like}`).limit(8);
+    $('abList').innerHTML = (data||[]).map(c => `<div class="item" data-c="${c.id}"><span><b>${esc(fullName(c))}</b><br><span class="empty">${esc(c.mobile||'')}</span></span><span class="empty">Installed ${yDate(c.install_date)}</span></div>`).join('') || '<div class="empty">No match</div>';
     $('abList').querySelectorAll('[data-c]').forEach(it => it.onclick = () => pick(data.find(c => c.id === it.dataset.c)));
   };
   let t; $('abQ').oninput = () => { clearTimeout(t); t = setTimeout(search, 250); }; $('abQ').focus();
-  function pick(c, selV = null) {
-    if (c._veh === undefined) {
-      db.from('customer_vehicles').select('*').eq('customer_id', c.id).is('removed_at', null).order('created_at')
-        .then(r => { c._veh = r.data || []; pick(c, selV); });
-      return;
-    }
-    let opts = allowedServices(engV(c, selV), services, S.date).filter(s => s.group !== 'changeover');
-    if (walkin) opts = opts.filter(s => s.group !== 'removal');
+  function pick(c) {
+    let opts = allowedServices(eng(c), services, S.date).filter(s => s.group !== 'changeover');
+    // Walk-ins can be anything: their services, a removal, general labour, or a blank sale to build at checkout.
+    if (walkin) opts = [...opts,
+      { ...SVC('misc'), id: 'misc-labour', name: 'General labour', note: 'Set hours × rate at checkout' },
+      { ...SVC('misc'), id: 'misc-travel', name: 'Travel', note: 'Set km × rate at checkout' },
+      { ...SVC('misc'), note: 'Blank sale — add whatever you need at checkout' }];
     $('abList').innerHTML = '';
-    $('abPick').innerHTML = `<div style="margin-top:10px"><b>${esc(fullName(c))}</b> · installed ${yDate(selV ? selV.install_date : c.install_date)}</div>
-      ${c._veh.length ? `<div class="label" style="margin-top:8px">Which vehicle?</div><div style="display:flex;gap:6px;flex-wrap:wrap">${[null, ...c._veh].map(v => `<button class="chip" data-vx="${v ? v.id : ''}" aria-pressed="${(selV ? selV.id : '') === (v ? v.id : '')}">${esc(vLabel(c, v))}</button>`).join('')}</div>` : ''}
-      <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px">${opts.map(s => `<button class="btn ghost" style="text-align:left" data-s="${s.id}">${esc(s.name)} · ${money(s.price)}${s.note?`<br><span class="empty">${esc(s.note)}</span>`:''}</button>`).join('')}</div>
+    $('abPick').innerHTML = `<div style="margin-top:10px"><b>${esc(fullName(c))}</b> · installed ${yDate(c.install_date)}</div>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px">${opts.map(s => `<button class="btn ghost" style="text-align:left" data-s="${s.id}">${esc(s.name)}${s.group === 'misc' ? '' : ' · ' + money(s.price)}${s.note?`<br><span class="empty">${esc(s.note)}</span>`:''}</button>`).join('')}</div>
       <div id="remExtra"></div>`;
-    $('abPick').querySelectorAll('[data-vx]').forEach(x => x.onclick = () => pick(c, c._veh.find(v => v.id === x.dataset.vx) || null));
     $('abPick').querySelectorAll('[data-s]').forEach(btn => btn.onclick = async () => {
-      let details = selV ? { vehicle_id: selV.id } : {};
+      let details = {};
       if (btn.dataset.s === 'rem') {
         const req = removalRequirements(eng(c), S.date);
         if (!$('remRef')) {
@@ -1127,275 +848,106 @@ async function renderAddBooking(locId, walkin = false) {
             ? `<label class="label" for="remRef" style="margin-top:8px;display:block">NZTA temporary removal approval number</label><input id="remRef" style="width:100%"><button class="btn" id="remGo" style="margin-top:6px">Book removal</button>`
             : `<label class="label" style="margin-top:8px;display:flex;gap:6px;align-items:center"><input type="checkbox" id="remRef"> I've seen their zero alcohol licence</label><button class="btn" id="remGo" style="margin-top:6px">Book removal</button>`;
           $('remGo').onclick = () => {
-            details = { ...details, ...(req.temporary ? { nztaApprovalRef: $('remRef').value.trim() } : ($('remRef').checked ? { zeroAlcoholLicencePhoto: 'seen in person by staff' } : {})) };
-            doBook(c, 'rem', details, selV);
+            details = req.temporary ? { nztaApprovalRef: $('remRef').value.trim() } : ($('remRef').checked ? { zeroAlcoholLicencePhoto: 'seen in person by staff' } : {});
+            doBook(c, 'rem', details);
           };
           return;
         }
       }
-      doBook(c, btn.dataset.s, details, selV);
+      doBook(c, btn.dataset.s, details);
     });
   }
-  async function doBook(c, svc, details, selV) {
-    if (walkin) return doWalkin(c, svc, selV);
+  async function doBook(c, svc, details) {
+    if (walkin) return doWalkin(c, svc, details);
     const { data, error } = await db.rpc('book_next_slot', { p_location: locId, p_date: S.date, p_service: svc, p_details: details, p_customer: c.id });
     if (error) return toast(errMsg(error), true);
     toast(`Booked ${fullName(c)} at ${fmtTime(data.start_min)}`); S.sel = data.id; await loadBookings(); renderRun();
   }
   // Walk-in: recorded at the current time (off the 5-min grid), already arrived, straight to checkout.
-  async function doWalkin(c, svcId, selV) {
-    const svc = allowedServices(engV(c, selV), services, S.date).find(s => s.id === svcId) || SVC(svcId);
+  async function doWalkin(c, svcId, details = {}) {
+    // General labour / Travel = a blank sale with that custom line ready to fill in at checkout
+    const prefill = { 'misc-labour': 'General labour', 'misc-travel': 'Travel' }[svcId];
+    if (prefill) svcId = 'misc';
+    const svc = allowedServices(eng(c), services, S.date).find(s => s.id === svcId) || SVC(svcId);
     const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Pacific/Auckland' }));
     const sess = S.sessions.find(x => x.location_id === locId && x.session_date === S.date);
     let t = S.date === nzToday() ? now.getHours() * 60 + now.getMinutes() : (sess ? sess.end_min : 720);
     const used = new Set(S.bookings.filter(b => b.location_id === locId).map(b => b.start_min));
     while (used.has(t)) t++;
-    const rowW = { vehicle_id: selV ? selV.id : null, customer_id: c.id, service_id: svc.id, location_id: locId, session_date: S.date, start_min: t,
-      duration_mins: svc.duration || 5, kind: 'service', status: 'arrived', source: 'walkin', price_cents: Math.round((svc.price || 0) * 100), details: {} };
-    // a walk-in is on the sheet but holds no bookable slot
-    let { data, error } = await db.from('bookings').insert({ ...rowW, time_locked: false }).select().single();
-    if (error && /time_locked/.test(errMsg(error))) ({ data, error } = await db.from('bookings').insert(rowW).select().single());
+    const { data, error } = await db.from('bookings').insert({ customer_id: c.id, service_id: svc.id, location_id: locId, session_date: S.date, start_min: t,
+      duration_mins: svc.duration || 5, kind: 'service', status: 'arrived', source: 'walkin', price_cents: Math.round((svc.price || 0) * 100),
+      details: svcId === 'rem' && removalRequirements(eng(c), S.date).temporary ? { ...details, temporary: true } : details }).select().single();
     if (error) return toast(errMsg(error), true);
-    toast(`Walk-in added: ${fullName(c)}`); S.sel = data.id; S.extras = []; await loadBookings(); renderRun();
+    toast(`Walk-in added: ${fullName(c)}`); S.sel = data.id; S.extras = []; S.useCredit = false; S.prefill = prefill || null; await loadBookings(); renderRun();
   }
 }
 
 // ---------- customers ----------
-// ---------- schedule changes (public holidays, moved days, one-off sessions) ----------
-async function renderSchedule() {
-  const today = nzToday(), locs = locations.filter(l => l.onlineBookable !== false);
-  const [ex, on] = await Promise.all([
-    db.from('schedule_exceptions').select('*').gte('date', today).order('date'),
-    db.from('schedules').select('*').eq('rule->>type', 'once')]);
-  if (ex.error || on.error) return toast(errMsg(ex.error || on.error), true);
-  const extras = (on.data || []).filter(x => x.rule.date >= today).sort((a, b) => a.rule.date.localeCompare(b.rule.date));
-  const KIND = { closed: 'Cancelled', override: 'Different hours', moved: 'Note' };
-  $('body').innerHTML = `<div class="layout"><div class="panel"><h2>Changes coming up</h2>
-      <div class="list">${[
-        ...ex.data.map(e => `<div class="item"><span><b>${esc(LOC(e.location_id))} · ${longDate(e.date)}</b><br><span class="empty">${KIND[e.kind] || e.kind}${e.kind === 'override' ? ` ${fmtTime(e.start_min)}–${fmtTime(e.end_min)}` : ''}${e.note ? ' · ' + esc(e.note) : ''}</span></span><button class="chip" data-delx="${e.id}">Undo</button></div>`),
-        ...extras.map(x => `<div class="item"><span><b>${esc(LOC(x.location_id))} · ${longDate(x.rule.date)}</b><br><span class="empty">Extra session ${fmtTime(x.start_min)}–${fmtTime(x.end_min)}</span></span><button class="chip" data-dels="${esc(x.id)}">Remove</button></div>`)
-      ].join('') || '<div class="empty">No changes. Every location runs to its normal pattern.</div>'}</div></div>
-    <aside class="panel side"><h2>Change a day</h2>
-      <p class="empty">To move a session off a public holiday: cancel the usual day, then add an extra session on the new day.</p>
-      <form class="form" id="scf">
-        <label class="label" for="scK">What</label><select id="scK"><option value="closed">Cancel this day</option><option value="override">Different hours this day</option><option value="once">Add an extra session</option></select>
-        <label class="label" for="scL">Location</label><select id="scL">${locs.map(l => `<option value="${l.id}">${esc(l.name)}</option>`).join('')}</select>
-        <label class="label" for="scD">Date</label><input id="scD" type="date" min="${today}" required>
-        <div id="scT" hidden><div class="grid2"><div><label class="label" for="scS">Start</label><input id="scS" type="time" step="300"></div><div><label class="label" for="scE">Finish</label><input id="scE" type="time" step="300"></div></div></div>
-        <label class="label" for="scN">Note for the run sheet (optional)</label><input id="scN" placeholder="e.g. Labour Day">
-        <button class="btn brand" id="scGo">Save</button></form></aside></div>`;
-  $('scK').onchange = () => { $('scT').hidden = $('scK').value === 'closed'; };
-  document.querySelectorAll('[data-delx]').forEach(b => b.onclick = async () => { const { error } = await db.from('schedule_exceptions').delete().eq('id', b.dataset.delx); if (error) return toast(errMsg(error), true); await loadSessions(); renderSchedule(); toast('Undone'); });
-  document.querySelectorAll('[data-dels]').forEach(b => b.onclick = async () => { const { error } = await db.from('schedules').delete().eq('id', b.dataset.dels); if (error) return toast(errMsg(error), true); await loadSessions(); renderSchedule(); toast('Removed'); });
-  $('scf').onsubmit = async e => {
-    e.preventDefault();
-    const kind = $('scK').value, loc = $('scL').value, date = $('scD').value, note = $('scN').value.trim() || null;
-    if (!date) return toast('Pick a date', true);
-    let st = null, en = null;
-    if (kind !== 'closed') { if (!$('scS').value || !$('scE').value) return toast('Enter the start and finish times', true); st = hmOf($('scS').value); en = hmOf($('scE').value); if (en <= st) return toast('Finish must be after start', true); }
-    const { data: sess, error: e1 } = await db.rpc('sessions_between', { from_date: date, to_date: date }); if (e1) return toast(errMsg(e1), true);
-    const has = sess.some(x => x.location_id === loc);
-    if (kind === 'once' && has) return toast(`${LOC(loc)} already has a session that day — use "Different hours" instead`, true);
-    if (kind !== 'once' && !has) return toast(`${LOC(loc)} has no session on that date`, true);
-    if (kind !== 'once') {
-      const { count } = await db.from('bookings').select('id', { count: 'exact', head: true }).eq('location_id', loc).eq('session_date', date).neq('status', 'cancelled');
-      if (count && $('scGo').dataset.sure !== date + kind) { $('scGo').dataset.sure = date + kind; $('scGo').textContent = `${count} booked that day — tap again to confirm`; return toast(`${count} customer${count > 1 ? 's are' : ' is'} booked that day. They are not told automatically yet — contact them.`, true); }
-    }
-    const r = kind === 'once'
-      ? await db.from('schedules').insert({ id: `once-${loc}-${date}`, location_id: loc, rule: { type: 'once', date }, start_min: st, end_min: en, slot_mins: 5, removal_slots: 3, removal_mins: 15 })
-      : await db.from('schedule_exceptions').insert({ location_id: loc, date, kind, start_min: st, end_min: en, note });
-    if (r.error) return toast(errMsg(r.error), true);
-    if (kind === 'once' && note) await db.from('schedule_exceptions').insert({ location_id: loc, date, kind: 'moved', note });
-    await loadSessions(); renderSchedule(); toast('Saved');
-  };
-}
-
 async function renderCustomers() {
-  const F = [['all', 'All'], ['attention', 'Needs a look'], ['quiet', 'No booking in 5 weeks'], ['enq', 'New enquiries' + (S.enqCount ? ' (' + S.enqCount + ')' : '')]];
-  $('body').innerHTML = `<div class="layout"><div class="panel"><input id="cq" placeholder="Search name, mobile, email or rego" style="width:100%" value="${esc(S.custQ)}" autocomplete="off">
-    <div style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0">${F.map(([k, n]) => `<button class="chip" aria-pressed="${S.custFilter===k}" data-cf="${k}">${n}</button>`).join('')}</div>
-    <div class="empty" id="ccount"></div><div class="list" id="clist"></div></div>
+  $('body').innerHTML = `<div class="layout"><div class="panel"><input id="cq" placeholder="Search name or mobile" style="width:100%" value="${esc(S.custQ)}" autocomplete="off"><div class="list" id="clist"></div></div>
     <aside class="panel side" id="cside"><p class="empty">Pick a customer to edit their install date, subsidy and theft protection.</p></aside></div>`;
   const load = async () => {
-    if (S.custFilter === 'enq') return loadEnquiries();
-    const q = $('cq').value.trim().replace(/[,()%]/g, ' '); S.custQ = q;
-    await loadPriceReqs();
-    let req = db.from('customers').select('*').order('first_name').limit(S.custFilter === 'quiet' ? 1000 : 100);
-    if (q.length >= 2) req = req.or(await custSearchOr(q, true));
-    if (S.custFilter === 'attention') { const ids = S.priceReqs.map(r => r.customer_id); req = req.or('self_registered.eq.true' + (ids.length ? `,id.in.(${ids.join(',')})` : '')); }
-    let { data, error } = await req; if (error) return toast(errMsg(error), true);
-    if (S.custFilter === 'quiet') {
-      const r = await db.from('bookings').select('customer_id').gte('session_date', addDays(nzToday(), -35)).neq('status', 'cancelled').limit(5000);
-      if (r.error) return toast(errMsg(r.error), true);
-      const recent = new Set(r.data.map(x => x.customer_id)); data = data.filter(c => !recent.has(c.id));
-    }
+    const q = $('cq').value.trim(); S.custQ = q;
+    let req = db.from('customers').select('*').order('first_name').limit(100);
+    if (q.length >= 2) req = req.or(`first_name.ilike.%${q}%,last_name.ilike.%${q}%,mobile.ilike.%${q}%`);
+    const { data, error } = await req; if (error) return toast(errMsg(error), true);
     S.customers = data;
-    $('ccount').textContent = S.custFilter === 'all' ? '' : data.length + ' customer' + (data.length === 1 ? '' : 's') + (S.custFilter === 'quiet' ? ' with nothing booked in the last 5 weeks or coming up' : ' with a price request or a new app sign-up to check');
-    $('clist').innerHTML = data.map(c => { const d = customerDates(eng(c), nzToday()); return `<div class="item" data-c="${c.id}"><span><b>${esc(fullName(c))}</b>${PR(c.id) ? ' <span class="pill p-pencilled">Price request</span>' : ''}${c.self_registered ? ' <span class="pill p-pencilled">New sign-up</span>' : ''}<br><span class="empty">${esc(c.mobile||'no mobile')}${c.vehicle ? ' · ' + esc(c.vehicle) : ''}</span></span>
-      <span class="empty" style="text-align:right">Installed ${yDate(c.install_date)}<br>${c.subsidised ? (d.subsidyOverdue ? 'Subsidised · 15 mths passed' : 'Subsidised') : 'Full price'}${c.theft_protection?' · TP':''}</span></div>`; }).join('') || '<div class="empty">No customers found</div>';
-    $('clist').querySelectorAll('[data-c]').forEach(it => it.onclick = () => { editCustomer(S.customers.find(c => c.id === it.dataset.c)); if (matchMedia('(max-width:960px)').matches) setTimeout(() => $('cside')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); });
+    $('clist').innerHTML = data.map(c => { const d = customerDates(eng(c), nzToday()); return `<div class="item" data-c="${c.id}"><span><b>${esc(fullName(c))}</b><br><span class="empty">${esc(c.mobile||'no mobile')}</span></span>
+      <span class="empty" style="text-align:right">Installed ${yDate(c.install_date)}<br>${c.subsidised ? (d.subsidyActive ? 'Subsidised' : 'Subsidy ended') : 'Full price'}${c.theft_protection?' · TP':''}</span></div>`; }).join('') || '<div class="empty">No customers found</div>';
+    $('clist').querySelectorAll('[data-c]').forEach(it => it.onclick = () => editCustomer(S.customers.find(c => c.id === it.dataset.c)));
   };
-  document.querySelectorAll('[data-cf]').forEach(b => b.onclick = () => { S.custFilter = b.dataset.cf; renderCustomers(); });
   let t; $('cq').oninput = () => { clearTimeout(t); t = setTimeout(load, 250); }; load();
 }
-// ---------- new customer enquiries (from the form link) ----------
-const ENQ_LINK = 'https://book.waikatointerlocks.co.nz/book/?new';
-const ENQ_ST = { new: 'New', contacted: 'Contacted', pencilled: 'Install pencilled in', installed: 'Installed', closed: 'Not going ahead' };
-const vehLine = v => [v.year, v.make, v.model, v.rego, v.start === 'push' ? '(push-button)' : v.start === 'key' ? '(key start)' : '', v.fuel].filter(Boolean).join(' ');
-async function loadEnquiries() {
-  const { data, error } = await db.from('enquiries').select('*').in('status', ['new', 'contacted', 'pencilled']).order('created_at', { ascending: false }).limit(200);
-  if (error) return toast(errMsg(error), true);
-  S.enquiries = data;
-  $('ccount').innerHTML = `Text people this link so they can send you their details: <b style="word-break:break-all">${ENQ_LINK}</b> <button class="chip" id="enqCopy">Copy link</button>`;
-  $('enqCopy').onclick = async () => { try { await navigator.clipboard.writeText(ENQ_LINK); toast('Link copied'); } catch (e) { toast('Could not copy - press and hold the link instead', true); } };
-  $('clist').innerHTML = data.map(e => `<div class="item" data-e="${e.id}"><span><b>${esc(e.first_name + ' ' + e.last_name)}</b> <span class="pill p-pencilled">${ENQ_ST[e.status]}</span><br><span class="empty">${esc(e.mobile)}${e.town ? ' · ' + esc(e.town) : ''}</span></span>
-    <span class="empty" style="text-align:right">${billDay(e.created_at)}${e.install_date ? '<br>Install ' + yDate(e.install_date) : ''}</span></div>`).join('') || '<div class="empty">No open enquiries</div>';
-  $('clist').querySelectorAll('[data-e]').forEach(it => it.onclick = () => { editEnquiry(S.enquiries.find(e => e.id === it.dataset.e)); if (matchMedia('(max-width:960px)').matches) setTimeout(() => $('cside')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); });
-}
-function editEnquiry(e) {
-  const v = e.vehicle || {}, row = (l, x) => x ? `<div class="fact"><div class="label">${l}</div><div class="v">${x}</div></div>` : '';
-  $('cside').innerHTML = `<h2>${esc(e.first_name + ' ' + e.last_name)}</h2><div class="empty">Sent ${billDay(e.created_at)}</div>
-    <div class="facts">${row('Mobile', `<a href="tel:${esc(e.mobile.replace(/ /g, ''))}">${esc(e.mobile)}</a>`)}${row('Email', esc(e.email || ''))}${row('Town', esc(e.town || ''))}${row('Service area', e.area ? esc(LOC(e.area)) : '')}
-      ${row('Vehicle', esc(vehLine(v)))}${row('Has interlock licence', { yes: 'Yes', applied: 'Applied', no: 'Not yet' }[e.has_licence] || '')}${row('Can apply from', e.licence_date ? yDate(e.licence_date) : '')}${row('Subsidy', { yes: 'Thinks yes', no: 'No', unsure: 'Not sure' }[e.subsidy] || '')}</div>
-    ${e.note ? `<div class="alert" style="background:var(--warn-soft);color:var(--ink)">${esc(e.note)}</div>` : ''}
-    <form id="eqF"><label class="label" for="eqSt">Status</label><select id="eqSt" style="width:100%">${Object.entries(ENQ_ST).map(([k, n]) => `<option value="${k}" ${e.status === k ? 'selected' : ''}>${n}</option>`).join('')}</select>
-      <label class="label" for="eqLd" style="margin-top:8px">Date they can apply for their licence</label><input type="date" id="eqLd" style="width:100%" value="${e.licence_date || ''}">
-      <label class="label" for="eqId" style="margin-top:8px">Install pencilled in for</label><input type="date" id="eqId" style="width:100%" value="${e.install_date || ''}">
-      <label class="label" for="eqIn" style="margin-top:8px">Time and place (goes in their reminder)</label><input id="eqIn" style="width:100%" placeholder="e.g. 10am at your place" value="${esc(e.install_note || '')}">
-      <label class="label" for="eqSn" style="margin-top:8px">Your notes</label><textarea id="eqSn" rows="2" style="width:100%">${esc(e.staff_note || '')}</textarea>
-      <div class="empty" style="margin:6px 0">Reminders go by email (text if no email): 14 days before and on their licence date, then 7 days and 1 day before the install.</div>
-      <button class="btn" style="width:100%">Save</button></form>
-    <div style="margin-top:8px">${e.customer_id ? '<div class="empty">Customer record made — find them under All.</div>' : '<button class="btn ghost" id="eqMk" style="width:100%">Make customer record</button>'}</div>`;
-  $('eqF').onsubmit = async ev => {
-    ev.preventDefault();
-    const idate = $('eqId').value || null, st = $('eqSt').value;
-    const up = { status: idate && st === 'new' ? 'pencilled' : st, licence_date: $('eqLd').value || null, install_date: idate, install_note: $('eqIn').value.trim() || null, staff_note: $('eqSn').value.trim() || null };
-    if (idate !== (e.install_date || null)) Object.assign(up, { r_inst_7: null, r_inst_1: null });
-    if (up.licence_date !== (e.licence_date || null)) Object.assign(up, { r_elig_14: null, r_elig_0: null });
-    const { error } = await db.from('enquiries').update(up).eq('id', e.id);
-    if (error) return toast(errMsg(error), true);
-    toast('Saved'); await loadPriceReqs(); renderCustomers();
-  };
-  if ($('eqMk')) $('eqMk').onclick = async () => {
-    $('eqMk').disabled = true;
-    const { error } = await db.rpc('enquiry_to_customer', { p_enquiry: e.id });
-    if (error) { $('eqMk').disabled = false; return toast(errMsg(error), true); }
-    toast('Customer record made — set their install date and price under All'); e.customer_id = true; editEnquiry(e);
-  };
-}
-function editCustomer(c, target = 'cside', after = renderCustomers) {
-  const d = customerDates(eng(c), nzToday()), el = $(target);
-  const m = allowedServices(eng(c), services, nzToday()).find(x => x.group === 'service');
-  el.innerHTML = `${target === 'side' ? '<button class="chip" id="edBack">← Back to checkout</button>' : ''}
-    <h2>${esc(fullName(c))}</h2><div class="empty">${esc(c.mobile || '')} · ${esc(c.email || '')}</div>
-    <div class="empty">Pays now: <b>${m ? esc(m.name) + ' ' + money(m.price) : '—'}</b></div>
-    ${priceReqBox(c)}
-    ${c.self_registered ? `<div class="alert" style="background:var(--warn-soft);color:var(--ink)"><b>New app sign-up.</b> They entered these details themselves. Check them, then mark as checked.
-      <div class="grid2" style="margin-top:8px"><button class="btn brand" id="mkChecked">Details checked</button><button class="btn ghost" id="joinOpen">Join with existing customer</button></div><div id="joinBox"></div></div>` : ''}
+function editCustomer(c) {
+  const d = customerDates(eng(c), nzToday());
+  $('cside').innerHTML = `<h2>${esc(fullName(c))}</h2><div class="empty">${esc(c.mobile || '')} · ${esc(c.email || '')}</div>
     <form class="form" id="cf" style="margin-top:10px">
       <label>First name<input id="f_first" value="${esc(c.first_name)}"></label><label>Last name<input id="f_last" value="${esc(c.last_name)}"></label>
       <label>Mobile<input id="f_mob" value="${esc(c.mobile)}"></label><label>Email<input id="f_em" value="${esc(c.email)}"></label>
-      <label>Install date<input id="f_inst" type="date" value="${esc(c.install_date)}"></label><label>Vehicle (rego or name)<input id="f_veh" value="${esc(c.vehicle)}" maxlength="40"></label>
+      <label>Install date<input id="f_inst" type="date" value="${esc(c.install_date)}"></label><label>Vehicle<input id="f_veh" value="${esc(c.vehicle)}"></label>
       <label style="flex-direction:row;align-items:center;gap:6px"><input type="checkbox" id="f_sub" ${c.subsidised?'checked':''}> Subsidised</label>
       <label style="flex-direction:row;align-items:center;gap:6px"><input type="checkbox" id="f_tp" ${c.theft_protection?'checked':''}> Theft protection</label>
-      <label>Subsidy start (date on the NZTA letter, if not the install date)<input id="f_ss" type="date" value="${esc(c.subsidy_start)}"></label>
-      <label>Date of last violation (NZTA decline email)<input id="f_lv" type="date" value="${esc(c.last_violation_date)}"></label>
-      <label>NZTA apply date (fills in 6 months after the violation)<input id="f_ad" type="date" value="${esc(c.apply_date)}"></label>
-      <label class="full">Service rollover date (if different from install, e.g. second device fitted)<input id="f_ro" type="date" value="${esc(c.rollover_date)}"></label>
+      <label>Subsidy obtained (if later than install)<input id="f_ss" type="date" value="${esc(c.subsidy_start)}"></label>
+      <label>NZTA apply date (if changed)<input id="f_ad" type="date" value="${esc(c.apply_date)}"></label>
       <label class="full">Alert (shows in red at checkout)<input id="f_al" value="${esc(c.alerts)}"></label>
       <label class="full">Notes<textarea id="f_no" rows="3">${esc(c.notes)}</textarea></label>
-      <div class="full empty">Apply date ${yDate(d.exitEligible)} · subsidy ${d.subsidyActive ? (d.subsidyOverdue ? 'ACTIVE, 15 months passed ' + yDate(d.subsidyEnds) + ' — untick Subsidised when Dräger emails' : d.subsidyEnds ? 'expected until ' + yDate(d.subsidyEnds) : 'active') : 'none'}<span id="nsd">${(w => w ? ' · next service due ' + yDate(w.due) : '')(serviceWindow(eng(c), nzToday()))}</span></div>
+      <div class="full empty">Apply date ${yDate(d.exitEligible)} · subsidy ${d.subsidyEnds ? (d.subsidyActive ? 'until ' : 'ended ') + yDate(d.subsidyEnds) : 'none'}</div>
       <div class="full"><button class="btn brand">Save</button></div></form>
-    <div id="vehBox" style="margin-top:16px;border-top:1px solid var(--line);padding-top:10px"></div>`;
-  loadVehicles(c);
-  if ($('edBack')) $('edBack').onclick = after;
-  wirePriceReq(el, after);
-  if ($('mkChecked')) $('mkChecked').onclick = async () => {
-    const { error } = await db.from('customers').update({ self_registered: false }).eq('id', c.id);
-    if (error) return toast(errMsg(error), true); toast('Marked as checked'); after();
-  };
-  if ($('joinOpen')) $('joinOpen').onclick = () => {
-    $('joinBox').innerHTML = `<input id="jq" placeholder="Find their existing record (name or mobile)" style="width:100%;margin-top:8px" autocomplete="off"><div class="list" id="jlist"></div>`;
-    let jt; $('jq').oninput = () => { clearTimeout(jt); jt = setTimeout(async () => {
-      const q = $('jq').value.trim().replace(/[,()%]/g, ' '); if (q.length < 2) return $('jlist').innerHTML = '';
-      const { data } = await db.from('customers').select('*').neq('id', c.id).or(`first_name.ilike.%${q}%,last_name.ilike.%${q}%,mobile.ilike.%${q}%`).order('first_name').limit(8);
-      $('jlist').innerHTML = (data || []).map(x => `<div class="item"><span><b>${esc(fullName(x))}</b><br><span class="empty">${esc(x.mobile || 'no mobile')} · installed ${yDate(x.install_date)}</span></span><button class="btn ghost" data-join="${x.id}">Join into this one</button></div>`).join('') || '<div class="empty">No match</div>';
-      $('jlist').querySelectorAll('[data-join]').forEach(bn => bn.onclick = async () => {
-        if (bn.dataset.sure !== '1') { bn.dataset.sure = '1'; bn.textContent = 'Tap again to join'; bn.className = 'btn'; return; }
-        const { error } = await db.rpc('merge_customers', { p_keep: bn.dataset.join, p_drop: c.id });
-        if (error) return toast(errMsg(error), true); toast('Joined — bookings moved across'); after();
-      });
-    }, 250); };
-    $('jq').focus();
-  };
-  db.from('bookings').select('service_id,status,session_date').eq('customer_id', c.id).eq('status', 'completed').gte('session_date', addDays(nzToday(), -45)).then(r => {
-    const w = serviceWindow(eng(c), nzToday(), servicedDates(r.data || [], services)); if (w && $('nsd')) $('nsd').textContent = ' · next service due ' + yDate(w.due);
-  });
-  $('f_lv').onchange = () => { const x = $('f_lv').value; if (!x) return; const six = addMonths(x, 6), inst = $('f_inst').value, std = inst ? addMonths(inst, 12) : six; $('f_ad').value = six > std ? six : std; };
+    <div id="credBox" style="margin-top:16px"></div>`;
+  creditPanel($('credBox'), c.id);
   $('cf').onsubmit = async e => {
     e.preventDefault();
     const v = id => $(id).value.trim() || null;
     const upd = { first_name: v('f_first'), last_name: v('f_last'), mobile: v('f_mob'), email: v('f_em'), install_date: v('f_inst'), vehicle: v('f_veh'),
-      subsidised: $('f_sub').checked, theft_protection: $('f_tp').checked, subsidy_start: v('f_ss'), rollover_date: v('f_ro'), alerts: v('f_al'), notes: v('f_no') };
-    const lv = v('f_lv'); if (lv !== (c.last_violation_date || null)) upd.last_violation_date = lv;
+      subsidised: $('f_sub').checked, theft_protection: $('f_tp').checked, subsidy_start: v('f_ss'), alerts: v('f_al'), notes: v('f_no') };
     const ad = v('f_ad'); if (ad !== c.apply_date) Object.assign(upd, { apply_date: ad, apply_date_set_by: ad ? 'staff' : null, apply_date_set_on: ad ? new Date().toISOString() : null });
     const { error } = await db.from('customers').update(upd).eq('id', c.id);
-    if (error) return toast(/duplicate|unique/i.test(errMsg(error)) ? 'Another customer already has that mobile. Use "Join with existing customer" instead.' : errMsg(error), true);
-    toast('Saved'); after();
-  };
-  el.insertAdjacentHTML('beforeend', `<div style="margin-top:18px;border-top:1px solid var(--line);padding-top:10px"><button class="chip" id="delC" style="color:var(--bad)">Delete customer</button><div id="delBox"></div></div>`);
-  $('delC').onclick = () => {
-    $('delBox').innerHTML = `<div class="alert">Delete <b>${esc(fullName(c))}</b> and their past bookings for good? This cannot be undone.
-      <div class="grid2" style="margin-top:8px"><button class="btn" id="delYes" style="background:var(--bad);border-color:var(--bad)">Yes, delete</button><button class="btn ghost" id="delNo">Keep</button></div></div>`;
-    $('delNo').onclick = () => { $('delBox').innerHTML = ''; };
-    $('delYes').onclick = async () => {
-      $('delYes').disabled = true;
-      const { error } = await db.rpc('delete_customer', { p_customer: c.id });
-      if (error) { $('delBox').innerHTML = `<div class="alert">${esc(errMsg(error))}</div>`; return; }
-      toast('Customer deleted'); if (target === 'side') { S.sel = null; } after();
-    };
+    if (error) return toast(errMsg(error), true);
+    toast('Saved'); renderCustomers();
   };
 }
 
-// ---------- extra vehicles (the customer record above is their first vehicle) ----------
-async function loadVehicles(c) {
-  const box = $('vehBox'); if (!box) return;
-  const { data, error } = await db.from('customer_vehicles').select('*').eq('customer_id', c.id).is('removed_at', null).order('created_at');
-  const ov = await db.from('service_due_overrides').select('*').eq('customer_id', c.id); c.due_overrides = ov.data || [];
-  if (error) { box.innerHTML = `<div class="alert">${esc(errMsg(error))}</div>`; return; }
-  const due = v => (w => w ? yDate(w.due) : '—')(serviceWindow(engV(c, v), nzToday()));
-  const form = (v, i) => `<form class="form" data-vf="${i}" style="margin-top:8px;padding:8px;border:1px solid var(--line);border-radius:8px">
-      <label>Rego or name<input name="label" required maxlength="40" value="${esc(v ? v.label : '')}" placeholder="e.g. ABC123 or Work ute"></label>
-      <label>Install date (this vehicle)<input name="install_date" type="date" value="${esc(v ? v.install_date : '')}"></label>
-      <label class="full">Service date, if different from its install date<input name="rollover_date" type="date" value="${esc(v ? v.rollover_date : '')}"></label>
-      <label style="flex-direction:row;align-items:center;gap:6px"><input type="checkbox" name="subsidised" ${v && v.subsidised ? 'checked' : ''}> Subsidised</label>
-      <label style="flex-direction:row;align-items:center;gap:6px"><input type="checkbox" name="theft_protection" ${!v || v.theft_protection ? 'checked' : ''}> Theft protection</label>
-      ${v ? `<div class="full empty">Next service due <b style="color:var(--bad)">${due(v)}</b> · ${esc(SVC((v.subsidised ? 'sub' : 'svc') + (v.theft_protection ? '-tp' : '')).name)}</div>` : ''}
-      <div class="full" style="display:flex;gap:6px"><button class="btn brand">${v ? 'Save vehicle' : 'Add vehicle'}</button>${v ? `<button type="button" class="btn ghost" data-vrm="${i}">Remove vehicle</button>` : ''}</div></form>`;
-  box.innerHTML = `<h3 style="margin:0">Vehicles</h3>
-    <div class="empty">First vehicle: <b>${esc(c.vehicle || 'not named')}</b> (the details above) · next service due <b style="color:var(--bad)">${due(null)}</b>. The apply date is the same for all their vehicles.</div>
-    ${data.map((v, i) => form(v, i)).join('')}
-    <div id="vehNew"><button class="btn ghost" id="vehAdd" style="margin-top:8px">+ Add another vehicle</button></div>`;
-  const read = f => ({ label: f.label.value.trim(), install_date: f.install_date.value || null, rollover_date: f.rollover_date.value || null,
-                       subsidised: f.subsidised.checked, theft_protection: f.theft_protection.checked });
-  box.querySelectorAll('[data-vf]').forEach(f => f.onsubmit = async e => {
-    e.preventDefault(); const v = data[+f.dataset.vf];
-    const { error } = await db.from('customer_vehicles').update(read(f)).eq('id', v.id);
-    if (error) return toast(errMsg(error), true); toast('Vehicle saved'); loadVehicles(c);
-  });
-  box.querySelectorAll('[data-vrm]').forEach(x => x.onclick = async () => {
-    if (x.dataset.sure !== '1') { x.dataset.sure = '1'; x.textContent = 'Tap again to remove'; return; }
-    const { error } = await db.from('customer_vehicles').update({ removed_at: new Date().toISOString() }).eq('id', data[+x.dataset.vrm].id);
-    if (error) return toast(errMsg(error), true); toast('Vehicle removed'); loadVehicles(c);
-  });
-  $('vehAdd').onclick = () => {
-    $('vehNew').innerHTML = form(null, 'new');
-    const f = $('vehNew').querySelector('form'); f.label.focus();
-    f.onsubmit = async e => {
-      e.preventDefault();
-      const { error } = await db.from('customer_vehicles').insert({ customer_id: c.id, ...read(f) });
-      if (error) return toast(errMsg(error), true); toast('Vehicle added'); loadVehicles(c);
-    };
+// ---------- account credit ----------
+// Balance + history + "add credit" form for one customer. Positive = credit added, negative = used / taken back.
+async function creditPanel(box, custId, onChange) {
+  const { data, error } = await db.from('customer_credits').select('*').eq('customer_id', custId).order('created_at', { ascending: false });
+  if (error) { box.innerHTML = `<div class="empty">Account credit isn't set up yet — run step3-custom-lines-and-credit.sql in Supabase.</div>`; return; }
+  const bal = data.reduce((a, r) => a + r.amount_cents, 0) / 100;
+  box.innerHTML = `<div class="label">Account credit</div><div class="co-total" style="padding-top:2px"><span>Balance</span><span class="t ${bal > 0 ? 'credit' : ''}">${money(bal)}</span></div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;align-items:center"><input id="crAmt" class="amt" type="number" step="0.01" placeholder="$" aria-label="Credit amount">
+      <input id="crWhy" placeholder="Reason, e.g. overpaid last month" style="flex:1 1 140px"><button class="btn ghost" id="crAdd">Add credit</button></div>
+    <div class="empty" style="font-size:.8rem;margin-top:2px">Use a minus amount to take credit back off.</div>
+    ${data.length ? `<div style="margin-top:8px">${data.slice(0, 12).map(r => `<div class="co-line" style="font-size:.88rem"><span>${yDate((r.created_at || '').slice(0, 10))} · ${esc(r.reason || '')}</span><span class="t ${r.amount_cents > 0 ? 'credit' : ''}">${r.amount_cents > 0 ? '+' : '−'}${money(Math.abs(r.amount_cents) / 100)}</span></div>`).join('')}</div>` : ''}`;
+  box.querySelector('#crAdd').onclick = async () => {
+    const amt = Number(box.querySelector('#crAmt').value), why = box.querySelector('#crWhy').value.trim();
+    if (!amt || !isFinite(amt)) return toast('Enter an amount', true);
+    if (!why) return toast('Add a reason', true);
+    if (amt < 0 && -amt > bal + 0.001) return toast(`They only have ${money(bal)} credit`, true);
+    const { error } = await db.from('customer_credits').insert({ customer_id: custId, amount_cents: Math.round(amt * 100), reason: why });
+    if (error) return toast(errMsg(error), true);
+    toast(amt > 0 ? `Added ${money(amt)} credit` : `Took ${money(-amt)} credit off`);
+    S.credits[custId] = Math.round((bal + amt) * 100);
+    onChange ? onChange() : creditPanel(box, custId);
   };
 }
 
