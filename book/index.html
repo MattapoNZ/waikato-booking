@@ -33,6 +33,8 @@ button{font:inherit;cursor:pointer}
 button:focus-visible,input:focus-visible,select:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 input,select,textarea{font:inherit;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 11px;width:100%;min-width:0}
 label.f{display:block;font-size:.8rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin:12px 0 4px}
+details.faq{border-top:1px solid var(--line);padding:10px 0}details.faq summary{cursor:pointer;font-weight:600}details.faq p{margin:8px 0 0}
+.stars{display:flex;gap:6px;margin:8px 0}.star{font-size:2rem;line-height:1;background:none;border:0;color:var(--line);cursor:pointer;padding:4px}.star.on{color:#f5a623}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;margin-top:12px}
 .btn{display:block;width:100%;border:0;border-radius:10px;padding:13px 14px;font-weight:700;background:var(--accent);color:var(--accent-ink);text-align:center;margin-top:10px}
 .btn.brand{background:var(--brand);color:var(--panel)} .btn.ghost{background:transparent;border:1px solid var(--line);color:var(--ink);font-weight:600}
@@ -594,15 +596,17 @@ async function renderPay(token) {
   const pb = $('pb');
   if (err) return pb.innerHTML = `<div class="note bad">${esc(errMsg(err))}</div>`;
   if (!v) return pb.innerHTML = `<div class="note bad">We couldn't find that bill. Please text Matt on ${MATT}.</div>`;
-  const amt = money(v.amount_cents / 100);
+  const amt = money(v.amount_cents / 100), fee = Math.round(v.amount_cents * 0.025);
   if (v.status === 'paid') return pb.innerHTML = `<h2>Paid — thank you${v.first_name ? ', ' + esc(v.first_name) : ''}</h2><p>${esc(v.description)}: <b>${amt}</b></p>
     <p class="muted">Nothing more to do.</p><a class="btn ghost" href="./" style="display:block;text-align:center;text-decoration:none">Open the booking app</a>`;
   if (v.status === 'cancelled') return pb.innerHTML = `<h2>Nothing to pay</h2><p class="muted">This bill has been cancelled or was paid in person.</p>`;
   pb.innerHTML = `<p class="muted">${v.first_name ? 'Hi ' + esc(v.first_name) + ', your bill:' : 'Your bill:'}</p><h2>${esc(v.description)}</h2>
     <p style="font-size:1.7rem;margin:6px 0"><b>${amt}</b> <span class="muted" style="font-size:.9rem">incl. GST</span></p>
+    <div class="slot"><span>Pay by card online<br><span class="muted">includes a 2.5% card fee of ${money(fee / 100)}</span></span><b class="t">${money((v.amount_cents + fee) / 100)}</b></div>
+    <div class="slot"><span>Pay in person at your next visit<br><span class="muted">EFTPOS, cash or Afterpay. No card fee</span></span><b class="t">${amt}</b></div>
     ${done ? '<div class="note">We have not seen the payment yet. If you just paid, wait a minute and reload this page before trying again.</div>' : ''}
-    <button class="btn brand" id="payGo">Pay by card</button>
-    <p class="muted" style="margin-top:10px">You pay on Stripe's secure page. We never see your card details. Or pay by EFTPOS or cash at your next visit.</p>`;
+    <button class="btn brand" id="payGo">Pay ${money((v.amount_cents + fee) / 100)} by card</button>
+    <p class="muted" style="margin-top:10px">You pay on Stripe's secure page. We never see your card details. The card fee covers what the card company charges us.</p>`;
   $('payGo').onclick = async () => {
     $('payGo').disabled = true; $('payGo').textContent = 'Opening secure payment…';
     const r = await db.rpc('bill_checkout', { p_token: token });
@@ -611,35 +615,89 @@ async function renderPay(token) {
   };
 }
 // ---------- new customer form (link Matt texts to people; no sign-in needed) ----------
+// shrink a photo to a small JPEG (or pass a small PDF through) and return base64, ready to email
+function fileB64(blob) { return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1]); r.onerror = rej; r.readAsDataURL(blob); }); }
+async function shrinkFile(file, name) {
+  if (file.type === 'application/pdf') {
+    if (file.size > 1100000) throw new Error('That PDF is too big. Take a photo of it instead.');
+    return { name: name + '.pdf', type: 'application/pdf', data: await fileB64(file) };
+  }
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('Could not read that photo. Try taking it again, or send it to Matt by text.')); i.src = url; });
+    let w = img.naturalWidth, h = img.naturalHeight; const k = Math.min(1, 1280 / Math.max(w, h)); w = Math.round(w * k); h = Math.round(h * k);
+    const cv = Object.assign(document.createElement('canvas'), { width: w, height: h }); cv.getContext('2d').drawImage(img, 0, 0, w, h);
+    for (const q of [0.6, 0.45, 0.3]) {
+      const blob = await new Promise(res => cv.toBlob(res, 'image/jpeg', q));
+      const data = await fileB64(blob);
+      if (data.length < 1400000) return { name: name + '.jpg', type: 'image/jpeg', data };
+    }
+    throw new Error('That photo is too big. Try again a little further away.');
+  } finally { URL.revokeObjectURL(url); }
+}
 function renderEnquiry() {
   const f = (id, label, attrs = '') => `<div><label class="f" for="${id}">${label}</label><input id="${id}" ${attrs}></div>`;
-  $('app').innerHTML = `<h1>Waikato Interlocks</h1><p class="muted">Getting a Dräger alcohol interlock fitted? Fill this in and Matt will be in touch to sort a time. It takes about two minutes.</p>
+  const sel = (id, label, opts) => `<div><label class="f" for="${id}">${label}</label><select id="${id}"><option value="">Choose…</option>${opts.map(([v, t]) => `<option value="${v}">${t}</option>`).join('')}</select></div>`;
+  const ph = (id, label) => `<label class="f" for="${id}">${label}</label><input id="${id}" type="file" accept="image/*,application/pdf">`;
+  $('app').innerHTML = `<h1>Waikato Interlocks</h1><p class="muted">Getting a Dräger alcohol interlock fitted? Fill this in and Matt will be in touch to sort a time. It takes about five minutes. Have your licence and vehicle details handy.</p>
     <form id="enF"><div class="card"><h2>About you</h2>
       <div class="facts">${f('enFn', 'First name', 'autocomplete="given-name" required')}${f('enLn', 'Last name', 'autocomplete="family-name" required')}</div>
+      ${f('enMn', 'Middle names (as on your licence)', 'autocomplete="additional-name"')}
+      ${f('enDob', 'Date of birth', 'type="date" autocomplete="bday"')}
       ${f('enMo', 'Mobile', 'type="tel" inputmode="tel" autocomplete="tel" placeholder="021 123 4567" required')}
       ${f('enEm', 'Email', 'type="email" autocomplete="email" placeholder="So we can send reminders"')}
-      ${f('enTo', 'Town or suburb where the vehicle is', 'placeholder="e.g. Te Awamutu"')}
-      <label class="f" for="enAr">Preferred service location</label><select id="enAr"><option value="">Not sure yet</option>${locations.map(l => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join('')}</select></div>
+      ${f('enStr', 'Street address', 'autocomplete="address-line1"')}
+      <div class="facts">${f('enSub', 'Suburb', 'autocomplete="address-level3"')}${f('enCity', 'Town or city', 'autocomplete="address-level2"')}${f('enPc', 'Postcode', 'inputmode="numeric" maxlength="4" autocomplete="postal-code"')}</div></div>
     <div class="card"><h2>The vehicle</h2>
       <div class="facts">${f('enRe', 'Plate', 'maxlength="6" autocapitalize="characters"')}${f('enYr', 'Year', 'inputmode="numeric" maxlength="4"')}${f('enMk', 'Make', 'placeholder="Toyota"')}${f('enMd', 'Model', 'placeholder="Hilux"')}
-        <div><label class="f" for="enSt">Start</label><select id="enSt"><option value="">Choose…</option><option value="key">Key</option><option value="push">Push button</option></select></div>
-        <div><label class="f" for="enFu">Fuel</label><select id="enFu"><option value="">Choose…</option><option value="petrol">Petrol</option><option value="diesel">Diesel</option><option value="hybrid">Hybrid</option><option value="ev">Electric</option></select></div></div></div>
+        ${sel('enSt', 'Start', [['key', 'Key'], ['push', 'Push button']])}
+        ${sel('enFu', 'Fuel', [['petrol', 'Petrol'], ['diesel', 'Diesel'], ['hybrid', 'Hybrid'], ['ev', 'Electric']])}</div>
+      ${sel('enTp', 'Do you want theft protection? (a small monthly extra from Dräger that covers theft or vandalism)', [['yes', 'Yes'], ['no', 'No'], ['unsure', 'Not sure']])}</div>
     <div class="card"><h2>Your licence</h2>
-      <label class="f" for="enHl">Do you have your alcohol interlock licence yet?</label><select id="enHl"><option value="">Choose…</option><option value="yes">Yes, I have it</option><option value="applied">I've applied</option><option value="no">Not yet</option></select>
-      ${f('enLd', 'Date you can apply for it (if you know)', 'type="date"')}
-      <label class="f" for="enSu">Do you think you qualify for the subsidy?</label><select id="enSu"><option value="">Choose…</option><option value="yes">Yes</option><option value="no">No</option><option value="unsure">Not sure</option></select>
+      ${sel('enHl', 'Do you have your alcohol interlock licence yet?', [['yes', 'Yes, I have it'], ['no', 'Not yet']])}
+      <div id="enYes" hidden>
+        <div class="facts">${f('enLn2', 'Licence number', 'autocapitalize="characters" maxlength="8" placeholder="AB123456"')}${f('enLv', 'Version', 'inputmode="numeric" maxlength="3" placeholder="123"')}</div>
+        ${ph('enP1', 'Photo of the front of your licence')}${ph('enP2', 'Photo of the back of your licence (optional)')}</div>
+      <div id="enNo2" hidden>${f('enLd', 'When do you expect to get it?', 'type="date"')}</div>
+      ${sel('enSu', 'Do you have the subsidy?', [['yes', 'Yes'], ['no', 'No'], ['unsure', 'Not sure']])}
+      <div id="enSuY" hidden>${ph('enP3', 'Photo of your subsidy approval (letter or form)')}</div>
+      <div class="note" id="enCsc" hidden>If you have a <b>Community Services Card</b> you may qualify for the subsidy, which brings the monthly cost down. Bring the card with you to the install.</div>
+      <p class="muted">Photos and your licence, birth date and address are emailed straight to Matt to set you up with Dräger. They are not kept in the booking system.</p></div>
+    <div class="card"><h2>Your install</h2>
+      ${f('enId', 'Preferred install date', 'type="date" min="' + nzToday() + '"')}
+      <label class="f" for="enAr">Preferred location</label><select id="enAr"><option value="">Not sure yet</option>${locations.map(l => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join('')}</select>
       <label class="f" for="enNo">Anything else Matt should know? Days or times that suit?</label><textarea id="enNo" rows="3" maxlength="1000"></textarea>
       <div id="enErr" class="note bad" hidden></div><button class="btn brand" id="enGo">Send my details</button>
       <p class="muted" style="margin-top:8px">We only use this to set up your install and bookings. <a href="../privacy/">Privacy policy</a></p></div></form>
     <p class="muted" style="text-align:center;margin-top:16px">Prefer to talk? Text or call Matt on <a href="tel:${MATT.replace(/ /g,'')}">${MATT}</a></p>`;
+  const sync = () => {
+    const hl = $('enHl').value, su = $('enSu').value;
+    $('enYes').hidden = hl !== 'yes'; $('enNo2').hidden = hl !== 'no';
+    $('enSuY').hidden = su !== 'yes'; $('enCsc').hidden = !(su === 'no' || su === 'unsure' || hl === 'no');
+  };
+  $('enHl').onchange = sync; $('enSu').onchange = sync;
   $('enF').onsubmit = async ev => {
     ev.preventDefault(); const v = id => $(id).value.trim();
+    const fail = m => { $('enGo').disabled = false; $('enGo').textContent = 'Send my details'; $('enErr').textContent = m; $('enErr').hidden = false; };
     $('enGo').disabled = true; $('enErr').hidden = true;
-    const { error } = await db.rpc('submit_enquiry', { p: { firstName: v('enFn'), lastName: v('enLn'), mobile: v('enMo'), email: v('enEm'), town: v('enTo'), area: v('enAr'),
-      rego: v('enRe'), year: v('enYr'), make: v('enMk'), model: v('enMd'), start: v('enSt'), fuel: v('enFu'), hasLicence: v('enHl'), licenceDate: v('enLd'), subsidy: v('enSu'), note: v('enNo') } });
-    if (error) { $('enGo').disabled = false; $('enErr').textContent = errMsg(error); $('enErr').hidden = false; return; }
+    const files = [];
+    try {
+      const want = [['enP1', 'licence-front', v('enHl') === 'yes'], ['enP2', 'licence-back', v('enHl') === 'yes'], ['enP3', 'subsidy', v('enSu') === 'yes']];
+      for (const [id, nm, on] of want) { const fl = $(id).files[0]; if (on && fl) { $('enGo').textContent = 'Preparing photos…'; files.push(await shrinkFile(fl, nm)); } }
+    } catch (e) { return fail(errMsg(e)); }
+    $('enGo').textContent = 'Sending…';
+    const town = [v('enSub'), v('enCity')].filter(Boolean).join(', ');
+    const priv = { middleNames: v('enMn'), dob: v('enDob'), street: v('enStr'), suburb: v('enSub'), city: v('enCity'), postcode: v('enPc') };
+    if (v('enHl') === 'yes') { priv.licenceNumber = v('enLn2'); priv.licenceVersion = v('enLv'); }
+    const { error } = await db.rpc('submit_enquiry', { p: { firstName: v('enFn'), lastName: v('enLn'), mobile: v('enMo'), email: v('enEm'), town, area: v('enAr'),
+      rego: v('enRe'), year: v('enYr'), make: v('enMk'), model: v('enMd'), start: v('enSt'), fuel: v('enFu'), theftProtection: v('enTp'), installDate: v('enId'),
+      hasLicence: v('enHl'), licenceDate: v('enHl') === 'no' ? v('enLd') : '', subsidy: v('enSu'), note: v('enNo'), private: priv, files } });
+    if (error) return fail(errMsg(error));
     $('app').innerHTML = `<h1>Waikato Interlocks</h1><div class="card"><h2>Thanks, ${esc(v('enFn'))} — we have your details</h2>
-      <p>Matt will be in touch to sort out a time for your install.</p><p class="muted">Anything urgent, text or call him on <a href="tel:${MATT.replace(/ /g,'')}">${MATT}</a>.</p></div>`;
+      <p>Matt will be in touch to sort out a time for your install.</p>
+      ${v('enSu') !== 'yes' ? '<p>Have a Community Services Card? Bring it along. You may qualify for the subsidy.</p>' : ''}
+      <p>While you wait, the <a href="?help">training video and guides</a> are worth a look.</p>
+      <p class="muted">Anything urgent, text or call him on <a href="tel:${MATT.replace(/ /g,'')}">${MATT}</a>.</p></div>`;
     scrollTo(0, 0);
   };
 }
@@ -648,6 +706,7 @@ async function start() {
   const payTok = qs.get('pay');
   if (payTok) return renderPay(payTok);
   if (qs.has('new')) return renderEnquiry();
+  if (qs.has('help')) return renderPublicHelp();
   const authErr = urlAuthError();
   if (authErr) return renderLogin(authErr);
   try {
@@ -664,7 +723,7 @@ async function start() {
 async function renderLogin(msg) {
   $('app').innerHTML = `<h1>Waikato Interlocks</h1><p class="muted">Book your interlock service, see your dates and what you pay.</p>
     <div class="card" id="lg">${msg ? `<div class="note bad">${esc(msg)}</div>` : ''}<p class="muted">Checking sign-in options…</p></div>
-    <p class="muted" style="text-align:center;margin-top:16px"><b>New here and need an interlock fitted?</b> <a href="?new">Send us your details</a><br>Anything urgent: text or call Matt on <a href="tel:${MATT.replace(/ /g,'')}">${MATT}</a><br>${unlockNote()}<br><a href="../privacy/">Privacy policy</a> · <a href="../?staff">Staff</a></p>`;
+    <p class="muted" style="text-align:center;margin-top:16px"><b>New here and need an interlock fitted?</b> <a href="?new">Send us your details</a><br><a href="?help">Help, guides and questions</a><br>Anything urgent: text or call Matt on <a href="tel:${MATT.replace(/ /g,'')}">${MATT}</a><br>${unlockNote()}<br><a href="../privacy/">Privacy policy</a> · <a href="../?staff">Staff</a></p>`;
   let ext = {};
   try { ext = (await (await fetch(SUPABASE_URL + '/auth/v1/settings', { headers: { apikey: SUPABASE_KEY } })).json()).external || {}; } catch (e) {}
   if (window.__mockSupabase) ext = window.__mockSupabase.providers || ext;
@@ -761,12 +820,119 @@ async function load() {
 }
 async function reload(msg) { try { await load(); } catch (e) { return toast(errMsg(e), true); } render(); if (msg) toast(msg); }
 
+// ---------- help: getting started, paperwork, FAQ, feedback ----------
+const VIDEO = 'https://www.youtube.com/watch?v=vzDBuRuj380';
+const REVIEW = 'https://search.google.com/local/writereview?placeid=ChIJ3UgdJbgPbW0RuUfrL76K8rE';
+const DOCS_BASE = 'https://img1.wsimg.com/blobby/go/15a82120-1a57-4788-8610-7083423e9302/downloads/';
+const PAPERWORK = [
+  ['Quick guide (Dräger 7500)', 'DSP-ITL-608%20Rev4%20Laminated%20Guide%20(NZ).pdf?ver=1794822627648'],
+  ['User guide (Dräger 7500)', '43f397cf-0148-4c8a-af37-cfcc146c3b7f/DSP-ITL-607-Rev3-User-Guide-NZ.pdf?ver=1794822627648'],
+  ['User guide (older XT model)', 'User_Guide_NZ_DSP-ITL-607_Rev2_081013.pdf?ver=1794822627649'],
+  ['Fees and charges (from April 2026)', '337f705c-10b3-471b-ba2a-936e879e5fb9/DSP-ITL-605-Rev4-Schedule-Fees-and-Charges-NZ.pdf?ver=1794822627649'],
+  ['Update your details (participant information form)', 'DSP%20SE6010%20A119%20Rev2%20Participant%20Information%20U.pdf?ver=1794822627649'],
+  ['Cancel theft protection', 'DSP%20SE6010%20A118%20Rev2%20Cancellation%20of%20Theft%20Pro.pdf?ver=1794822627649'],
+  ['Unauthorised removal form', 'DSP%20SE6010%20A120%20Rev1%20Unauthorised%20Removal%20Form.pdf?ver=1794822627649']];
+const FAQ = [
+  ['Getting started', [
+    ['What does the interlock do?', 'Before the vehicle will start you blow into the handset. If it finds no alcohol, the vehicle starts. If it finds alcohol, the vehicle stays off for a while and you can try again later. It keeps a record of every test, which is read at each service and passed on to NZTA.'],
+    ['Can I drive any car while I have the interlock licence?', 'No. On an interlock licence you can only drive a vehicle with an approved interlock fitted.'],
+    ['Can I have it in more than one vehicle?', 'Yes. Each vehicle needs its own interlock, and each one has its own monthly service and fees. Your apply-to-exit date is the same for all of them.'],
+    ['Changing vehicles?', 'Text Matt before you do. The interlock has to be moved by us and your details updated. A vehicle change fee and some labour may apply, depending on the vehicle.']]],
+  ['Using it day to day', [
+    ['Will it stop the engine while I am driving?', 'No. It never turns the engine off while you are driving.'],
+    ['What is a rolling retest?', 'Every so often after you start, it asks for another breath test. Pull over somewhere safe first, then blow. If you get to where you are going and it is asking for a test, do the test before you turn the vehicle off, or it can count as a missed test.'],
+    ['What if I fail a test at the start?', 'The vehicle will not start and the screen counts down until you can try again. Rinse your mouth with water and wait.'],
+    ['Does a "not enough breath" message count against me?', 'No. It just asks you to blow again.'],
+    ['Can food, mouthwash or medicine set it off?', 'Yes, anything with alcohol in it can, if you have it just before a test. Wait 15 minutes after eating, drinking, smoking or using mouthwash, and rinse with water before you blow.'],
+    ['What about perfume, hand sanitiser or air freshener?', 'Sprays and wipes with alcohol in them can affect a test if used in the vehicle. Air the car out and wait 15 minutes before testing.'],
+    ['I only want the radio or windows. Do I have to blow?', 'No. You only need to test when you want to start the vehicle.'],
+    ['Can other people drive it?', 'Yes, if they hold a licence and know how to use the interlock. They have to pass the tests too, and anything recorded counts against you, whoever was driving.'],
+    ['How do I look after the mouthpiece and handset?', 'Use your own mouthpiece and replace it at least monthly. Mouthpieces can be washed. Clean the handset only with an ethanol alcohol wipe, keep liquid out of the small hole, and let it dry for 15 minutes before using it.'],
+    ['Will it flatten my battery?', 'It uses very little power. If the car sits for long periods, or the battery or alternator is already weak, you might have trouble. Talk to Matt if you do.'],
+    ['My car needs repairs. What do I do?', 'Tell the mechanic about the interlock and leave a clean mouthpiece. If the battery needs disconnecting, call Dräger on 0800 372 437 first, and keep the repair receipt in case anything shows on your record.']]],
+  ['Servicing and lockout', [
+    ['How often does it need a service?', 'Every month. At each service we download the data, check the device and send the record through.'],
+    ['When can I come in?', 'The screen starts reminding you 7 days before your due date, and you have about a week after it before it locks out. Book in that window. This app shows your due date and we email you reminders.'],
+    ['What happens if I miss it?', 'The vehicle will not start until it has been serviced. You may need an unlock code from Dräger (0800 372 437) or a tow, at your cost, so it pays to book on time.']]],
+  ['Costs and payments', [
+    ['What does it cost?', 'A monthly rental that includes the regular service, plus the install. Your price is on the Home tab. If you have the subsidy or theft protection your price reflects that. Extra fees can apply for missed appointments, violation resets, call-outs and lockouts. See the Dräger fees and charges sheet above.'],
+    ['How can I pay?', 'At your visit by EFTPOS, cash or Afterpay, with no extra fee. Or by card online from the link we send you, which adds a 2.5% card fee.'],
+    ['Do you take Afterpay?', 'Yes. Let Matt know at your visit.'],
+    ['What is theft protection?', 'An optional monthly extra from Dräger that covers replacing the interlock if it is stolen or damaged by vandals. To cancel it, use the form in Paperwork above.']]],
+  ['Finishing the programme', [
+    ['How do I get it taken off?', 'Once you reach your apply date, book a visit so we can read the data, then apply to NZTA within 48 hours (24 is best). This app shows the link after your visit. When NZTA approves it, book your removal here.'],
+    ['NZTA declined my application. Now what?', 'Their email gives the date of your last violation. Enter it on the Me tab and we work out your new apply date, 6 months after it.'],
+    ['Can I have it removed early?', 'It can be done, but your programme stays unfinished and you may not be able to drive. Talk to NZTA or Dräger before you decide.'],
+    ['Can I buy the interlock when I finish?', 'Dräger may be able to sell you one. Call them on 0800 372 437.']]]];
+
+function helpHtml(signedIn) {
+  return `<h1>Help</h1>
+    <div class="card"><h2>Getting started</h2>
+      <p>New to the interlock? Watch this short video first. It shows how to blow into it and what the screen means.</p>
+      <a class="btn brand" href="${VIDEO}" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none">Watch the training video</a>
+      <p class="muted" style="margin-top:10px">At your install Matt goes through how it works with you. Keep the quick guide in the vehicle.</p></div>
+    <div class="card"><h2>Paperwork</h2><p class="muted">Dräger's guides and forms. They open as PDFs.</p>
+      ${PAPERWORK.map(([n, u]) => `<a class="slot" style="text-decoration:none;color:inherit" href="${DOCS_BASE + u}" target="_blank" rel="noopener"><span>${esc(n)}</span><span class="muted">Open</span></a>`).join('')}</div>
+    <div class="card"><h2>Questions people ask</h2>
+      ${FAQ.map(([sec, qs]) => `<h3 style="margin:16px 0 4px">${esc(sec)}</h3>` + qs.map(([q, a]) => `<details class="faq"><summary>${esc(q)}</summary><p>${esc(a)}</p></details>`).join('')).join('')}
+      <p class="muted" style="margin-top:14px">Still stuck? Text or call Matt on <a href="tel:${MATT.replace(/ /g,'')}">${MATT}</a>. If the vehicle is locked out after hours, call Dräger on <a href="tel:0800372437">0800 372 437</a>.</p></div>
+    ${signedIn ? `<div class="card" id="fbCard"><h2>How are we doing?</h2>
+      <p class="muted">Tell Matt what you think of the service or this app. It goes straight to him.</p>
+      <div class="stars" role="radiogroup" aria-label="Rating">${[1,2,3,4,5].map(n => `<button type="button" class="star" data-star="${n}" role="radio" aria-checked="false" aria-label="${n} star${n > 1 ? 's' : ''}">★</button>`).join('')}</div>
+      <label class="f" for="fbC">Comments or ideas (optional)</label><textarea id="fbC" rows="3" maxlength="2000"></textarea>
+      <div id="fbErr" class="note bad" hidden></div><button class="btn brand" id="fbGo">Send to Matt</button>
+      <p class="muted" style="margin-top:10px">Happy to share it publicly? <a href="${REVIEW}" target="_blank" rel="noopener">Leave us a Google review</a>.</p></div>` : ''}`;
+}
+function wireFeedback() {
+  if (!$('fbCard')) return;
+  let rating = 0;
+  document.querySelectorAll('[data-star]').forEach(b => b.onclick = () => {
+    rating = +b.dataset.star;
+    document.querySelectorAll('[data-star]').forEach(x => { const on = +x.dataset.star <= rating; x.classList.toggle('on', on); x.setAttribute('aria-checked', String(+x.dataset.star === rating)); });
+  });
+  $('fbGo').onclick = async () => {
+    const c = $('fbC').value.trim();
+    if (!rating && c.length < 3) { $('fbErr').textContent = 'Tap a star or write a comment.'; $('fbErr').hidden = false; return; }
+    $('fbGo').disabled = true; $('fbErr').hidden = true;
+    const { error } = await db.rpc('submit_feedback', { p_rating: rating || null, p_comment: c });
+    if (error) { $('fbGo').disabled = false; $('fbErr').textContent = errMsg(error); $('fbErr').hidden = false; return; }
+    $('fbCard').innerHTML = `<h2>Thanks — Matt has it</h2><p>We read every one.</p>
+      <p>If you have a minute, a Google review helps other people find us.</p>
+      <a class="btn ghost" href="${REVIEW}" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none">Leave a Google review</a>`;
+  };
+}
+function viewHelp() { $('view').innerHTML = helpHtml(true); wireFeedback(); }
+function renderPublicHelp() {
+  $('app').innerHTML = `<p style="margin:0"><a href="./">← Back</a></p>${helpHtml(false)}`;
+}
+
+// ---------- add to home screen ----------
+let installEvt = null;
+addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; if ($('hsCard')) $('hsCard').outerHTML = homeScreenCard(); wireHomeScreen(); });
+const standalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const isIos = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const lsGet = k => { try { return localStorage.getItem(k); } catch (e) { return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} };
+function homeScreenCard(banner) {
+  if (standalone()) return '';
+  if (banner && lsGet('hsHide')) return '';
+  const how = installEvt ? '<button class="btn brand" id="hsGo">Add to Home Screen</button>'
+    : isIos() ? '<ol style="margin:6px 0 0;padding-left:20px"><li>Tap the <b>Share</b> button (the square with an arrow) at the bottom of Safari.</li><li>Scroll down and tap <b>Add to Home Screen</b>.</li><li>Tap <b>Add</b>.</li></ol><p class="muted">On iPhone this only works in Safari.</p>'
+    : '<p>Open your browser menu (⋮) and choose <b>Add to Home screen</b> or <b>Install app</b>.</p>';
+  return `<div class="card" id="hsCard"><h2>Put this app on your home screen</h2><p class="muted">Then it opens like any other app, one tap from your phone.</p>${how}
+    ${banner ? '<button class="btn ghost" id="hsNo">Not now</button>' : ''}</div>`;
+}
+function wireHomeScreen() {
+  if ($('hsGo')) $('hsGo').onclick = async () => { if (!installEvt) return; installEvt.prompt(); try { await installEvt.userChoice; } catch (e) {} installEvt = null; $('hsCard')?.remove(); };
+  if ($('hsNo')) $('hsNo').onclick = () => { lsSet('hsHide', '1'); $('hsCard')?.remove(); };
+}
+
 // ---------- render ----------
 function render() {
-  const tabs = [['home','Home'],['book','Book'],['more','Removal'],['me','Me']];
+  const tabs = [['home','Home'],['book','Book'],['more','Removal'],['help','Help'],['me','Me']];
   $('app').innerHTML = `<div id="view"></div><nav>${tabs.map(([k, n]) => `<button data-tab="${k}" ${S.tab===k?'aria-current="page"':''}>${n}</button>`).join('')}</nav>`;
   document.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { S.tab = b.dataset.tab; S.confirm = null; S.rPick = null; render(); scrollTo(0, 0); });
-  ({ home: viewHome, book: viewBook, more: viewMore, me: viewMe })[S.tab]();
+  ({ home: viewHome, book: viewBook, more: viewMore, help: viewHelp, me: viewMe })[S.tab]();
   if (S.tab === 'home' || S.tab === 'me') $('view').insertAdjacentHTML('beforeend', `<div class="note" style="margin-top:14px">${unlockNote()}</div>`);
 }
 
@@ -873,7 +1039,7 @@ function viewHome() {
   $('view').innerHTML = `<h1>Hi ${esc(S.me.first_name || 'there')}</h1>
     ${(S.me.bills || []).map(x => `<div class="card"><h2>Bill to pay: ${money(x.amount_cents / 100)}</h2><p>${esc(x.description)}</p>
       <a class="btn brand" href="?pay=${encodeURIComponent(x.token)}" style="display:block;text-align:center;text-decoration:none">Pay online by card</a>
-      <p class="muted" style="margin-top:8px">Or pay by EFTPOS or cash at your next visit.</p></div>`).join('')}
+      <p class="muted" style="margin-top:8px">A 2.5% card fee is added online. Or pay at your next visit by EFTPOS, cash or Afterpay with no fee.</p></div>`).join('')}
     ${NOTICES.filter(n => today <= n.until).map(n => `<div class="note">${n.html}</div>`).join('')}
     ${exitCard(d, today, w)}
     ${VEH().map(v => { const vid = v ? v.id : '', s = live('service', false, multi() ? vid : undefined);
@@ -891,7 +1057,9 @@ function viewHome() {
       <div class="fact"><div class="k">Subsidy</div><div class="v">${d.subsidyActive ? (d.subsidyEnds && !d.subsidyOverdue ? 'Until ' + yDate(d.subsidyEnds) : 'Active') : 'None'}</div></div>
       <div class="fact"><div class="k">Theft protection</div><div class="v">${S.me.theft_protection ? 'Yes' : 'No'}</div></div></div>
       ${toApply === null ? '' : toApply > 0 ? `<p class="muted">${toApply} day${toApply === 1 ? '' : 's'} until you can apply to NZTA to have it removed. You need a service on or after that date.</p>`
-        : '<p class="muted">You can now apply to NZTA to exit. See the top of this page.</p>'}</div>`;
+        : '<p class="muted">You can now apply to NZTA to exit. See the top of this page.</p>'}</div>
+    ${homeScreenCard(true)}`;
+  wireHomeScreen();
   document.querySelectorAll('[data-exit]').forEach(b => b.onclick = () => { S.svc = b.dataset.exit; S.tab = 'book'; render(); });
   document.querySelectorAll('[data-heard]').forEach(b => b.onclick = () => { S.tab = b.dataset.heard; render(); scrollTo(0, 0); if (S.tab === 'me') setTimeout(() => { $('lvF')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); $('lv')?.focus(); }, 50); });
   document.querySelectorAll('[data-gobook]').forEach(x => x.onclick = () => { S.veh = x.dataset.gobook; S.svc = 'service'; S.tab = 'book'; render(); });
@@ -1072,9 +1240,21 @@ function viewMe() {
       <form id="lvF"><label class="f" for="lv">Date of last violation (from the NZTA email)</label><input id="lv" type="date" max="${nzToday()}" value="${esc(S.me.last_violation_date || '')}"><div id="lvOut" class="note" hidden></div><div id="lvErr" class="note bad" hidden></div><button class="btn brand">Save</button></form>
       <details style="margin-top:10px"><summary class="muted">NZTA gave me an actual date to apply instead</summary>
       <form id="adF"><label class="f" for="ad">Date you can next apply</label><input id="ad" type="date" value="${esc(S.me.apply_date || '')}"><div id="adErr" class="note bad" hidden></div><button class="btn">Save date</button></form></details></div>
-    <div class="card"><h2>Keep this handy</h2><p class="muted">In your browser menu choose <b>Add to Home screen</b> to open this like an app.</p><button class="btn ghost" id="out">Sign out</button><p class="muted" style="text-align:center"><a href="../privacy/">Privacy policy</a></p></div>
-    <p class="muted" style="text-align:center;font-size:.75rem">build 2026-11-17 02:03 UTC</p>`;
+    <div class="card"><h2>Reminders</h2><p class="muted">We email you about your bookings and when your service is due.</p>
+      <label class="chk"><input type="checkbox" id="smsOn" ${S.me.sms_reminders ? 'checked' : ''}> Also text me on the morning of each booking</label>
+      ${S.me.email ? '' : '<p class="muted">We have no email for you, so we text you anyway.</p>'}</div>
+    ${homeScreenCard(false)}
+    <div class="card"><button class="btn ghost" id="out" style="margin-top:0">Sign out</button><p class="muted" style="text-align:center"><a href="../privacy/">Privacy policy</a></p></div>
+    <p class="muted" style="text-align:center;font-size:.75rem">build 2026-11-17 02:46 UTC</p>`;
   $('out').onclick = signOut;
+  wireHomeScreen();
+  $('smsOn').onchange = async () => {
+    const on = $('smsOn').checked; $('smsOn').disabled = true;
+    const { error } = await db.rpc('set_sms_reminders', { p_on: on });
+    $('smsOn').disabled = false;
+    if (error) { $('smsOn').checked = !on; return toast(errMsg(error), true); }
+    S.me.sms_reminders = on; toast(on ? 'We will text you on the morning' : 'Morning texts off');
+  };
   if ($('prF')) $('prF').onsubmit = async ev => {
     ev.preventDefault();
     const p = { wantsSubsidy: !!$('prSub')?.checked, noTheftProtection: !!$('prTp')?.checked, note: $('prNote').value.trim() };
@@ -1104,7 +1284,7 @@ function viewMe() {
   };
 }
 
-db.auth.onAuthStateChange((ev) => { if (ev === 'SIGNED_IN' && !S.me && !S.starting && !new URLSearchParams(location.search).get('pay') && !new URLSearchParams(location.search).has('new')) { S.starting = true; setTimeout(() => start().finally(() => S.starting = false), 0); } });
+db.auth.onAuthStateChange((ev) => { if (ev === 'SIGNED_IN' && !S.me && !S.starting && !new URLSearchParams(location.search).get('pay') && !new URLSearchParams(location.search).has('new') && !new URLSearchParams(location.search).has('help')) { S.starting = true; setTimeout(() => start().finally(() => S.starting = false), 0); } });
 start();
 </script>
 </body>
