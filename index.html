@@ -647,6 +647,8 @@ const sessOf = s => ({ id: 's', date: s.session_date, start: s.start_min, end: s
 const toEng = b => ({ id: b.id, sessionId: 's', start: b.start_min, duration: b.duration_mins, status: b.status, kind: b.kind,
                       timeLocked: b.time_locked, approvedAt: b.approved_at, createdAt: b.created_at });
 const floating = b => b.kind === 'removal' && b.time_locked === false;
+// a 'blocked' slot is a placeholder booking (no customer contact details) so nobody can book that time
+const isBlock = b => !!b.details?.block;
 const estFor = s => removalEstimates(sessOf(s), S.bookings.filter(b => b.location_id === s.location_id).map(toEng));
 const hmOf = v => { const [h, m] = String(v).split(':').map(Number); return h * 60 + m; };
 
@@ -799,7 +801,9 @@ function renderRun() {
      const rTime = b => floating(b) ? (est.get(b.id) ?? b.start_min) : b.start_min;
      const held = t => rs.find(b => !floating(b) && b.start_min <= t && t < b.start_min + b.duration_mins);
      const row = (t, b) => {
-       if (!b) { const h = held(t); return `<tr class="free"><td class="t">${fmtTime(t)}</td><td colspan="5">${h ? `— held for removal · ${esc(fullName(h.customer || {}))} —` : '— free —'}</td></tr>`; }
+       if (!b) { const h = held(t); return h ? `<tr class="free"><td class="t">${fmtTime(t)}</td><td colspan="5">— held for removal · ${esc(fullName(h.customer || {}))} —</td></tr>`
+         : `<tr class="free" style="cursor:pointer" data-free="${s.location_id}|${t}" title="Block this time"><td class="t">${fmtTime(t)}</td><td colspan="5">— free — <span class="empty d-only" style="font-size:.8rem">tap to block</span></td></tr>`; }
+       if (isBlock(b)) return `<tr class="row ${b.id===S.sel?'sel':''}" data-b="${b.id}"><td class="t">${fmtTime(b.start_min)}</td><td colspan="4"><b>⛔ Blocked</b>${b.details.note ? ` <span class="empty">· ${esc(b.details.note)}</span>` : ''}</td><td><span class="pill p-cancelled">Busy</span></td></tr>`;
        const c = b.customer || {}, flag = profileFlag(c, b), fl = floating(b);
        const pill = fl ? (b.approved_at ? ['pencilled', 'Approved · time not locked'] : ['pencilled', 'Needs approval'])
          : b.kind === 'service' && b.status === 'pencilled' ? ['pencilled', 'Request · confirm?'] : [b.status, STATUS[b.status] || b.status];
@@ -809,16 +813,17 @@ function renderRun() {
      };
      const times = slotTimes(sess);
      return `<div class="session"><div class="s-head"><h3>${esc(LOC(s.location_id))} <span class="t" style="font-size:.9rem;color:var(--muted)">${fmtTime(s.start_min)}–${fmtTime(s.end_min)}</span>${s.request_only ? ' <span class="pill p-pencilled">Request only</span>' : ''}${s.fill_backwards ? ' <span class="empty" style="font-size:.8rem">books from the last slot back</span>' : ''}</h3>
-       <span class="empty">${bs.length} of ${times.length} booked${rs.length?` · ${rs.length} removal${rs.length>1?'s':''}`:''} · taken ${money(taken)}</span></div>
+       <span class="empty">${bs.filter(b => !isBlock(b)).length} of ${times.length} booked${bs.some(isBlock) ? ` · ${bs.filter(isBlock).length} blocked` : ''}${rs.length?` · ${rs.length} removal${rs.length>1?'s':''}`:''} · taken ${money(taken)}</span></div>
        ${(s.notes||[]).length?`<div class="alert" style="background:var(--warn-soft);color:var(--ink)">${esc(s.notes.join('; '))}</div>`:''}
-       <div class="meter"><i style="width:${Math.round(bs.length/times.length*100)}%"></i></div>
+       <div class="meter"><i style="width:${Math.round(bs.filter(b => !isBlock(b)).length/times.length*100)}%"></i></div>
        <div class="tablewrap"><table><thead><tr><th>Time</th><th>Customer</th><th class="d-only">Installed</th><th class="d-only">Service</th><th class="d-only">Price</th><th>Status</th></tr></thead><tbody>
        ${times.map(t => row(t, bs.find(b => b.start_min === t))).join('')}
        <tr><td colspan="6" class="label" style="padding-top:12px">Removals · ${rs.length} of ${s.removal_slots} · ≈ times move as services book, until approved and locked on the day</td></tr>
        ${[...rs].sort((a, b) => rTime(a) - rTime(b)).map(b => row(0, b)).join('') || '<tr class="free"><td class="t"></td><td colspan="5">— none requested —</td></tr>'}
        ${ws.length ? `<tr><td colspan="6" class="label" style="padding-top:12px">Walk-ins</td></tr>${ws.map(b => row(b.start_min, b)).join('')}` : ''}
        </tbody></table></div>
-       <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap"><button class="btn" data-walk="${s.location_id}">+ Walk-in sale</button><button class="btn ghost" data-add="${s.location_id}">+ Add booking</button><button class="btn ghost" data-msg="${s.location_id}">Text this session</button></div></div>`;
+       <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap"><button class="btn" data-walk="${s.location_id}">+ Walk-in sale</button><button class="btn ghost" data-add="${s.location_id}">+ Add booking</button><button class="btn ghost" data-msg="${s.location_id}">Text this session</button>
+         <button class="btn ghost" data-sess="${s.location_id}">Hours / block / close</button></div></div>`;
    }).join('') : '<div class="empty">No sessions this day.</div>'}</div>
    <aside class="panel side" id="side"></aside></div>`;
   document.querySelectorAll('[data-d]').forEach(b => b.onclick = async () => { S.date = b.dataset.d; S.sel = null; await loadBookings(); renderRun(); });
@@ -826,9 +831,102 @@ function renderRun() {
   document.querySelectorAll('[data-add]').forEach(b => b.onclick = () => { renderAddBooking(b.dataset.add); showSide(); });
   document.querySelectorAll('[data-walk]').forEach(b => b.onclick = () => { renderAddBooking(b.dataset.walk, true); showSide(); });
   document.querySelectorAll('[data-msg]').forEach(b => b.onclick = () => { renderMessage(b.dataset.msg); showSide(); });
+  document.querySelectorAll('[data-sess]').forEach(b => b.onclick = () => { S.sel = null; renderSessionTools(b.dataset.sess); showSide(); });
+  document.querySelectorAll('[data-free]').forEach(tr => tr.onclick = () => { const [l, t] = tr.dataset.free.split('|'); S.sel = null; renderSessionTools(l, +t); showSide(); });
   document.querySelector('.datebar [aria-pressed="true"]')?.scrollIntoView({ inline: 'center', block: 'nearest' });
   if (S.sel) showSide();
   renderSide();
+}
+
+// ---------- one session: change hours, block times, close ----------
+const hhmm = m => String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+// The placeholder "customer" that blocked times are filed under. No mobile or email, so it never gets texts or reminders.
+async function blockCustomerId() {
+  const f = await db.from('customers').select('id').eq('first_name', '⛔ Blocked').eq('last_name', 'time').limit(1);
+  if (f.data && f.data.length) return f.data[0].id;
+  const r = await db.from('customers').insert({ first_name: '⛔ Blocked', last_name: 'time', subsidised: false, theft_protection: false,
+    notes: 'Placeholder used by the run sheet to block out times. Do not delete.' }).select('id').single();
+  if (r.error) throw r.error;
+  return r.data.id;
+}
+function renderSessionTools(locId, blockAt = null) {
+  const el = $('side'), s = S.sessions.find(x => x.location_id === locId && x.session_date === S.date);
+  if (!s) return renderSide();
+  const live = S.bookings.filter(b => b.location_id === locId && !isBlock(b) && b.status !== 'cancelled');
+  const slots = slotTimes({ start: s.start_min, end: s.end_min, slotMins: s.slot_mins });
+  el.innerHTML = `<div class="label">${esc(LOC(locId))} · ${longDate(S.date)}</div><h2>Session ${fmtTime(s.start_min)}–${fmtTime(s.end_min)}</h2>
+    <p class="empty">${live.length ? `${live.length} customer${live.length > 1 ? 's' : ''} booked.` : 'Nobody booked yet.'}</p>
+
+    <div class="label" style="margin-top:12px">Block out a time</div>
+    <div class="empty">Nobody can book a blocked time, e.g. while you're at another job. Unblock any time by tapping it.</div>
+    <div class="grid2"><div><label class="label" for="bkS">From</label><select id="bkS" style="width:100%">${slots.map(t => `<option value="${t}" ${t === (blockAt ?? s.start_min) ? 'selected' : ''}>${fmtTime(t)}</option>`).join('')}</select></div>
+      <div><label class="label" for="bkE">Until</label><select id="bkE" style="width:100%">${slots.map(t => t + s.slot_mins).map(t => `<option value="${t}" ${t === (blockAt != null ? blockAt + s.slot_mins : s.end_min) ? 'selected' : ''}>${fmtTime(t)}</option>`).join('')}</select></div></div>
+    <input id="bkN" placeholder="Note (optional, e.g. install in Te Awamutu)" style="width:100%;margin-top:6px">
+    <button class="btn" id="bkGo" style="width:100%;margin-top:6px">Block these times</button>
+
+    <div class="label" style="margin-top:16px">Change hours this day</div>
+    <div class="empty">Start earlier or finish later to add slots, or shorten it.</div>
+    <div class="grid2"><div><label class="label" for="hrS">Start</label><input id="hrS" type="time" step="300" value="${hhmm(s.start_min)}" style="width:100%"></div>
+      <div><label class="label" for="hrE">Finish</label><input id="hrE" type="time" step="300" value="${hhmm(s.end_min)}" style="width:100%"></div></div>
+    <button class="btn ghost" id="hrGo" style="width:100%;margin-top:6px">Save new hours</button>
+
+    <div class="label" style="margin-top:16px">Close this session</div>
+    <div class="empty">Takes it off the app so nobody can book. Undo it from the Schedule tab.</div>
+    <input id="clN" placeholder="Note (optional, e.g. no bookings)" style="width:100%;margin-top:6px">
+    <button class="btn ghost" id="clGo" style="width:100%;margin-top:6px;color:var(--bad)">Close ${esc(LOC(locId))} ${longDate(S.date)}</button>
+    <button class="btn ghost" id="stBack" style="width:100%;margin-top:14px">Back</button>`;
+  $('stBack').onclick = () => renderSide();
+  $('bkGo').onclick = async () => {
+    const from = +$('bkS').value, to = +$('bkE').value;
+    if (to <= from) return toast('"Until" must be after "From"', true);
+    const taken = new Set(S.bookings.filter(b => b.location_id === locId && b.status !== 'cancelled' && !floating(b)).flatMap(b => { const o = []; for (let t = b.start_min; t < b.start_min + (b.duration_mins || 5); t += s.slot_mins) o.push(t); return o; }));
+    const todo = slots.filter(t => t >= from && t < to && !taken.has(t));
+    if (!todo.length) return toast('Those times are already booked or blocked', true);
+    $('bkGo').disabled = true;
+    try {
+      const cid = await blockCustomerId(), note = $('bkN').value.trim().slice(0, 80) || null;
+      const rows = todo.map(t => ({ customer_id: cid, service_id: 'labour', location_id: locId, session_date: S.date, start_min: t, duration_mins: s.slot_mins,
+        kind: 'service', status: 'confirmed', source: 'staff', price_cents: 0, details: { block: true, note } }));
+      // one at a time, so a slot that turns out to be taken just gets skipped
+      let ok = 0, lastErr = null;
+      for (const r of rows) { const { error } = await db.from('bookings').insert(r); if (error) lastErr = error; else ok++; }
+      if (!ok) throw lastErr || new Error('Could not block those times');
+      const skipped = slots.filter(t => t >= from && t < to).length - ok;
+      toast(`Blocked ${ok} slot${ok > 1 ? 's' : ''}${skipped ? ` (${skipped} already taken, left as is)` : ''}`);
+      await loadBookings(true); renderRun();
+    } catch (e) { $('bkGo').disabled = false; toast(errMsg(e), true); }
+  };
+  $('hrGo').onclick = async () => {
+    const st = hmOf($('hrS').value), en = hmOf($('hrE').value);
+    if (!(en > st)) return toast('Finish must be after start', true);
+    const outside = live.filter(b => !floating(b) && b.kind === 'service' && b.source !== 'walkin' && (b.start_min < st || b.start_min >= en));
+    if (outside.length && $('hrGo').dataset.sure !== `${st}-${en}`) {
+      $('hrGo').dataset.sure = `${st}-${en}`; $('hrGo').textContent = 'Tap again to save anyway';
+      return toast(`${outside.length} booking${outside.length > 1 ? 's are' : ' is'} outside those hours (${outside.map(b => fmtTime(b.start_min)).join(', ')}). Move or contact them.`, true);
+    }
+    $('hrGo').disabled = true;
+    // a one-off extra session is edited directly; a normal session gets "different hours" for this day
+    const once = await db.from('schedules').select('id').eq('id', `once-${locId}-${S.date}`);
+    let r;
+    if (once.data && once.data.length) r = await db.from('schedules').update({ start_min: st, end_min: en }).eq('id', once.data[0].id);
+    else {
+      await db.from('schedule_exceptions').delete().eq('location_id', locId).eq('date', S.date).eq('kind', 'override');
+      r = await db.from('schedule_exceptions').insert({ location_id: locId, date: S.date, kind: 'override', start_min: st, end_min: en, note: null });
+    }
+    if (r.error) { $('hrGo').disabled = false; return toast(errMsg(r.error), true); }
+    toast(`${LOC(locId)} now ${fmtTime(st)}–${fmtTime(en)} on ${longDate(S.date)}`); await loadSessions(); renderRun();
+  };
+  $('clGo').onclick = async () => {
+    if (live.length && $('clGo').dataset.sure !== '1') {
+      $('clGo').dataset.sure = '1'; $('clGo').textContent = `${live.length} booked — tap again to close anyway`;
+      return toast(`${live.length} customer${live.length > 1 ? 's are' : ' is'} booked. They are not told automatically — use "Text this session" first.`, true);
+    }
+    if ($('clGo').dataset.sure !== '1' && $('clGo').dataset.sure !== '2') { $('clGo').dataset.sure = '2'; $('clGo').textContent = 'Tap again to close'; return; }
+    $('clGo').disabled = true;
+    const { error } = await db.from('schedule_exceptions').insert({ location_id: locId, date: S.date, kind: 'closed', note: $('clN').value.trim() || null });
+    if (error) { $('clGo').disabled = false; return toast(errMsg(error), true); }
+    toast(`${LOC(locId)} closed for ${longDate(S.date)} — undo from the Schedule tab`); await loadSessions(); render();
+  };
 }
 
 // ---------- bills the customer can pay online (Stripe) ----------
@@ -895,6 +993,16 @@ function renderSide() {
     const calc = () => { const q = installCharge({ installDate: nzToday(), subsidised: $('iqSub').checked, theftProtection: $('iqTp').checked }, services, { complex: $('iqCx').checked, today: nzToday() });
       $('iqOut').innerHTML = q.lines.map(l => `<div class="co-line"><span>${esc(l.name)}</span><span class="t">${money(l.price)}</span></div>`).join('') + `<div class="co-total"><span>Total</span><span class="t">${money(q.total)}</span></div>`; };
     ['iqCx','iqSub','iqTp'].forEach(id => $(id).onchange = calc); calc(); return;
+  }
+  if (isBlock(b)) {
+    el.innerHTML = `<div class="label">${esc(LOC(b.location_id))} · ${longDate(b.session_date)}</div><h2>⛔ Blocked ${fmtTime(b.start_min)}</h2>
+      <p class="empty">${b.details.note ? esc(b.details.note) + '. ' : ''}Nobody can book this time.</p>
+      <button class="btn" id="unblk" style="width:100%">Unblock — free it up again</button>
+      <button class="btn ghost" id="blkTools" style="width:100%;margin-top:6px">Hours / block / close this session</button>`;
+    $('unblk').onclick = async () => { const { error } = await db.from('bookings').update({ status: 'cancelled', cancelled_at: new Date().toISOString() }).eq('id', b.id);
+      if (error) return toast(errMsg(error), true); S.sel = null; toast('Unblocked'); await loadBookings(true); renderRun(); };
+    $('blkTools').onclick = () => { S.sel = null; renderSessionTools(b.location_id); };
+    return;
   }
   const c = b.customer || {}, d = customerDates(eng(c), b.session_date), ev = engV(c, b.vehicle), dv = customerDates(ev, b.session_date), paid = b.payments.length > 0;
   const scrollWas = el.scrollTop;
