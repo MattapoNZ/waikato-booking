@@ -611,7 +611,7 @@ const SVC = id => services.find(s => s.id === id) || { id, name: id, price: 0 };
 const xPrice = x => typeof x === 'string' ? SVC(x).price : Math.round(x.q * x.p * 100) / 100;
 const xName = x => typeof x === 'string' ? SVC(x).name : `${x.n} (${+x.q} × ${money(x.p)})`;
 // what the booking itself is for: a blank walk-in sale has no main item, only the lines added at checkout
-const mainName = b => b.details?.blank ? 'Walk-in sale' : b.details?.temporary ? 'Temporary removal' : SVC(b.service_id).name;
+const mainName = b => b.details?.install ? SVC(b.service_id).name + ' + first month' : b.details?.blank ? 'Walk-in sale' : b.details?.temporary ? 'Temporary removal' : SVC(b.service_id).name;
 const lsGet = k => { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } };
 const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} };
 // DB row -> engine customer shape
@@ -649,6 +649,23 @@ const toEng = b => ({ id: b.id, sessionId: 's', start: b.start_min, duration: b.
 const floating = b => b.kind === 'removal' && b.time_locked === false;
 // a 'blocked' slot is a placeholder booking (no customer contact details) so nobody can book that time
 const isBlock = b => !!b.details?.block;
+// ---------- installs: floating, after the session ----------
+// An install is pencilled in after a session (at the customer's place). It holds no slot. Its estimated time is
+// the end of the last booking in that session + travel time (or "not before", if set), so it slides later as
+// services book. It locks on the morning of the day (or when Matt taps Lock time) and then stays put.
+// Stored as a booking: kind 'service', time_locked false, details { install: true, mins, travel, notBefore, place, locked }.
+const isInstall = b => !!b.details?.install;
+function installEstimate(b, sRow) {
+  if (b.details?.locked) return b.start_min;
+  if (!sRow) return b.start_min;
+  const est = estFor(sRow);
+  const ends = S.bookings.filter(x => x.location_id === b.location_id && x.status !== 'cancelled' && !isInstall(x) && !isBlock(x) && x.source !== 'walkin')
+    .map(x => floating(x) ? (est.get(x.id) ?? x.start_min) + sRow.removal_mins : x.start_min + (x.duration_mins || sRow.slot_mins));
+  const lastEnd = ends.length ? Math.max(...ends) : sRow.start_min;
+  const t = lastEnd + (b.details?.travel ?? 30);
+  return Math.max(t, b.details?.notBefore ?? 0);
+}
+const fmtDur = m => m >= 60 ? `${Math.floor(m / 60)}h${m % 60 ? ' ' + (m % 60) + 'm' : ''}` : m + 'm';
 const estFor = s => removalEstimates(sessOf(s), S.bookings.filter(b => b.location_id === s.location_id).map(toEng));
 const hmOf = v => { const [h, m] = String(v).split(':').map(Number); return h * 60 + m; };
 
@@ -734,6 +751,20 @@ async function loadBookings(noLock) {
   S.bookings = data;
   await loadCredits(cids);
   await loadPriceReqs();
+  // Keep each pencilled install's stored time in step with its estimate (the customer app and reminders read it).
+  if (!noLock) {
+    const drift = data.filter(b => isInstall(b) && !b.details.locked && b.status !== 'cancelled')
+      .map(b => [b, installEstimate(b, S.sessions.find(x => x.session_date === b.session_date && x.location_id === b.location_id))]).filter(([b, t]) => t !== b.start_min);
+    if (drift.length) await Promise.all(drift.map(([b, t]) => db.from('bookings').update({ start_min: t }).eq('id', b.id).then(r => { if (!r.error) b.start_min = t; })));
+  }
+  // On the day itself, pencilled installs lock at their estimated time (once, then reload).
+  if (!noLock && S.date === nzToday()) {
+    const open = data.filter(b => isInstall(b) && !b.details.locked && b.status !== 'cancelled');
+    if (open.length) {
+      const rs = await Promise.all(open.map(b => db.from('bookings').update({ start_min: installEstimate(b, S.sessions.find(x => x.session_date === b.session_date && x.location_id === b.location_id)), details: { ...b.details, locked: true } }).eq('id', b.id)));
+      if (rs.every(r => !r.error)) { toast('Today\'s install times are now locked in'); return loadBookings(true); }
+    }
+  }
   // On the day itself, approved removals take their solid time (once, then reload).
   if (!noLock && S.date === nzToday()) {
     const locs = [...new Set(data.filter(b => floating(b) && b.approved_at).map(b => b.location_id))];
@@ -793,7 +824,8 @@ function renderRun() {
   $('body').innerHTML = `<div class="datebar">${dates.map(d => `<button class="chip" aria-pressed="${d===S.date}" data-d="${d}">${d===nzToday()?'Today':longDate(d)}</button>`).join('')}</div>
    <div class="layout"><div class="panel">${day.length ? day.map(s => {
      const sess = { start: s.start_min, end: s.end_min, slotMins: s.slot_mins, removalSlots: s.removal_slots, removalMins: s.removal_mins };
-     const bs = S.bookings.filter(b => b.location_id === s.location_id && b.kind === 'service' && b.source !== 'walkin');
+     const bs = S.bookings.filter(b => b.location_id === s.location_id && b.kind === 'service' && b.source !== 'walkin' && !isInstall(b));
+     const ins = S.bookings.filter(b => b.location_id === s.location_id && isInstall(b)).map(b => ({ b, t: installEstimate(b, s) })).sort((x, y) => x.t - y.t);
      const ws = S.bookings.filter(b => b.location_id === s.location_id && b.source === 'walkin');
      const rs = S.bookings.filter(b => b.location_id === s.location_id && b.kind === 'removal');   // floating + locked
      const taken = S.bookings.filter(b => b.location_id === s.location_id).reduce((a, b) => a + b.payments.reduce((x, p) => x + p.amount_cents, 0), 0) / 100;
@@ -820,9 +852,12 @@ function renderRun() {
        ${times.map(t => row(t, bs.find(b => b.start_min === t))).join('')}
        <tr><td colspan="6" class="label" style="padding-top:12px">Removals · ${rs.length} of ${s.removal_slots} · ≈ times move as services book, until approved and locked on the day</td></tr>
        ${[...rs].sort((a, b) => rTime(a) - rTime(b)).map(b => row(0, b)).join('') || '<tr class="free"><td class="t"></td><td colspan="5">— none requested —</td></tr>'}
+       ${ins.length ? `<tr><td colspan="6" class="label" style="padding-top:12px">Installs · after the session · ≈ times move as services book, locked on the morning</td></tr>${ins.map(({ b, t }) => `<tr class="row ${b.id===S.sel?'sel':''}" data-b="${b.id}"><td class="t">${b.details.locked ? '' : '≈ '}${fmtTime(t)}</td>
+         <td><b>${esc(fullName(b.customer || {}))}</b> <span class="empty">· ${fmtDur(b.details.mins || 120)}${b.details.place ? ' · ' + esc(b.details.place) : ''}</span></td><td class="t d-only">${fmtTime(t)}–${fmtTime(t + (b.details.mins || 120))}</td>
+         <td class="d-only">${esc(SVC(b.service_id).name)}</td><td class="t d-only">${money(b.price_cents/100)}</td><td><span class="pill p-${b.status === 'completed' ? 'completed' : b.details.locked ? 'confirmed' : 'pencilled'}">${b.status === 'completed' ? 'Paid' : b.details.locked ? 'Time locked' : 'Pencilled'}</span></td></tr>`).join('')}` : ''}
        ${ws.length ? `<tr><td colspan="6" class="label" style="padding-top:12px">Walk-ins</td></tr>${ws.map(b => row(b.start_min, b)).join('')}` : ''}
        </tbody></table></div>
-       <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap"><button class="btn" data-walk="${s.location_id}">+ Walk-in sale</button><button class="btn ghost" data-add="${s.location_id}">+ Add booking</button><button class="btn ghost" data-msg="${s.location_id}">Text this session</button>
+       <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap"><button class="btn" data-walk="${s.location_id}">+ Walk-in sale</button><button class="btn ghost" data-add="${s.location_id}">+ Add booking</button><button class="btn ghost" data-inst="${s.location_id}">+ Install after</button><button class="btn ghost" data-msg="${s.location_id}">Text this session</button>
          <button class="btn ghost" data-sess="${s.location_id}">Hours / block / close</button></div></div>`;
    }).join('') : '<div class="empty">No sessions this day.</div>'}</div>
    <aside class="panel side" id="side"></aside></div>`;
@@ -831,11 +866,77 @@ function renderRun() {
   document.querySelectorAll('[data-add]').forEach(b => b.onclick = () => { renderAddBooking(b.dataset.add); showSide(); });
   document.querySelectorAll('[data-walk]').forEach(b => b.onclick = () => { renderAddBooking(b.dataset.walk, true); showSide(); });
   document.querySelectorAll('[data-msg]').forEach(b => b.onclick = () => { renderMessage(b.dataset.msg); showSide(); });
+  document.querySelectorAll('[data-inst]').forEach(b => b.onclick = () => { S.sel = null; renderAddBooking(b.dataset.inst, false, true); showSide(); });
   document.querySelectorAll('[data-sess]').forEach(b => b.onclick = () => { S.sel = null; renderSessionTools(b.dataset.sess); showSide(); });
   document.querySelectorAll('[data-free]').forEach(tr => tr.onclick = () => { const [l, t] = tr.dataset.free.split('|'); S.sel = null; renderSessionTools(l, +t); showSide(); });
   document.querySelector('.datebar [aria-pressed="true"]')?.scrollIntoView({ inline: 'center', block: 'nearest' });
   if (S.sel) showSide();
   renderSide();
+}
+
+function installBox(b) {
+  const d = b.details, sRow = S.sessions.find(x => x.session_date === b.session_date && x.location_id === b.location_id), t = installEstimate(b, sRow);
+  return `<div class="alert" style="background:var(--brand-soft);color:var(--ink)"><b>Install ${d.locked ? 'at' : 'about'} ${fmtTime(t)}</b> · ${fmtDur(d.mins || 120)}${d.place ? '<br>' + esc(d.place) : ''}
+    <div class="empty" style="color:var(--ink)">${d.locked ? 'Time locked in.' : `Pencilled — ${d.travel ?? 30} min after the last booking${d.notBefore != null ? `, not before ${fmtTime(d.notBefore)}` : ''}. Moves later as services book; locks on the morning.`}</div>
+    <div class="grid2" style="margin-top:6px"><div><label class="label" for="inM">Allow (mins)</label><input id="inM" type="number" step="15" min="15" value="${d.mins || 120}" style="width:100%"></div>
+      <div><label class="label" for="inT">Travel (mins)</label><input id="inT" type="number" step="5" min="0" value="${d.travel ?? 30}" style="width:100%"></div></div>
+    <label class="label" for="inNB" style="margin-top:6px;display:block">Not before (optional)</label><input id="inNB" type="time" step="300" value="${d.notBefore != null ? hhmm(d.notBefore) : ''}" style="width:100%">
+    <label class="label" for="inP" style="margin-top:6px;display:block">Where</label><input id="inP" value="${esc(d.place || '')}" style="width:100%">
+    <div class="grid2" style="margin-top:6px"><button class="btn ghost" id="inSave">Save</button>${d.locked ? '<button class="btn ghost" id="inUnlock">Unlock time</button>' : `<button class="btn" id="inLock">Lock at ${fmtTime(t)}</button>`}</div>
+    <button class="btn ghost" id="inCopy" style="width:100%;margin-top:6px">Copy text for ${esc((b.customer || {}).first_name || 'them')}</button></div>`;
+}
+function wireInstall(b) {
+  const sRow = S.sessions.find(x => x.session_date === b.session_date && x.location_id === b.location_id);
+  const save = async extra => {
+    const mins = parseInt($('inM').value, 10), travel = parseInt($('inT').value, 10), nb = $('inNB').value;
+    if (!(mins >= 15)) return toast('Allow at least 15 minutes', true);
+    if (!(travel >= 0)) return toast('Enter the travel time', true);
+    const details = { ...b.details, mins, travel, notBefore: nb ? hmOf(nb) : null, place: $('inP').value.trim().slice(0, 120) || null, ...extra };
+    const upd = { details, duration_mins: mins };
+    if (extra && extra.locked) upd.start_min = installEstimate({ ...b, details: { ...details, locked: false } }, sRow);
+    const { error } = await db.from('bookings').update(upd).eq('id', b.id);
+    if (error) return toast(errMsg(error), true);
+    toast(extra ? (extra.locked ? 'Install time locked' : 'Unlocked — it moves with bookings again') : 'Saved'); await loadBookings(true); renderRun();
+  };
+  $('inSave').onclick = () => save();
+  if ($('inLock')) $('inLock').onclick = () => save({ locked: true });
+  if ($('inUnlock')) $('inUnlock').onclick = () => save({ locked: false });
+  $('inCopy').onclick = async () => {
+    const t = installEstimate(b, sRow), c = b.customer || {};
+    const msg = `Hi ${c.first_name || ''}, it's Matt from Waikato Interlocks. Your interlock install ${b.session_date === nzToday() ? 'today' : 'on ' + longDate(b.session_date)} will be ${b.details.locked ? 'at' : 'about'} ${fmtTime(t)}${b.details.place ? ' at ' + b.details.place : ''}. It takes up to ${fmtDur(b.details.mins || 120)}. Please have your licence with you. Thanks!`;
+    try { await navigator.clipboard.writeText(msg); toast('Text copied — paste it into your messages'); } catch (e) { prompt('Copy this text:', msg); }
+  };
+}
+function installForm(c, locId) {
+  const sRow = S.sessions.find(x => x.location_id === locId && x.session_date === S.date);
+  const sub = c.subsidised && customerDates(eng(c), S.date).subsidyActive !== false;
+  $('abList').innerHTML = '';
+  $('abPick').innerHTML = `<div style="margin-top:10px"><b>${esc(fullName(c))}</b>${sub ? ' · subsidised' : ''}</div>
+    <div class="label" style="margin-top:8px">Vehicle</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap"><label class="chip"><input type="radio" name="inK" value="std" checked> Standard</label><label class="chip"><input type="radio" name="inK" value="cx"> Complex (push-button, hybrid, European)</label></div>
+    <div class="grid2" style="margin-top:8px"><div><label class="label" for="nfM">Allow (mins)</label><input id="nfM" type="number" step="15" min="15" value="120" style="width:100%"></div>
+      <div><label class="label" for="nfT">Travel after the session (mins)</label><input id="nfT" type="number" step="5" min="0" value="30" style="width:100%"></div></div>
+    <label class="label" for="nfNB" style="margin-top:6px;display:block">Not before (optional)</label><input id="nfNB" type="time" step="300" style="width:100%">
+    <label class="label" for="nfP" style="margin-top:6px;display:block">Where</label><input id="nfP" placeholder="Address" style="width:100%">
+    <div id="nfPrice" class="empty" style="margin-top:6px"></div>
+    <button class="btn" id="nfGo" style="width:100%;margin-top:8px">Pencil in install</button>`;
+  const price = () => { const q = installCharge(eng(c), services, { complex: document.querySelector('[name="inK"]:checked').value === 'cx', today: S.date });
+    $('nfPrice').innerHTML = q.lines.map(l => `${esc(l.name)} ${money(l.price)}`).join(' + ') + ` = <b>${money(q.total)}</b>`; return q; };
+  document.querySelectorAll('[name="inK"]').forEach(r => r.onchange = price); price();
+  $('nfGo').onclick = async () => {
+    const mins = parseInt($('nfM').value, 10), travel = parseInt($('nfT').value, 10), nb = $('nfNB').value;
+    if (!(mins >= 15) || !(travel >= 0)) return toast('Check the minutes', true);
+    const q = price();
+    let t = (sRow ? sRow.end_min : 720) + travel;
+    const used = new Set(S.bookings.filter(b => b.location_id === locId).map(b => b.start_min)); while (used.has(t)) t++;
+    $('nfGo').disabled = true;
+    const row = { customer_id: c.id, service_id: q.lines[0].id, location_id: locId, session_date: S.date, start_min: t, duration_mins: mins,
+      kind: 'service', status: 'confirmed', source: 'staff', price_cents: Math.round(q.total * 100), time_locked: false,
+      details: { install: true, mins, travel, notBefore: nb ? hmOf(nb) : null, place: $('nfP').value.trim().slice(0, 120) || null, locked: false } };
+    const { data, error } = await db.from('bookings').insert(row).select().single();
+    if (error) { $('nfGo').disabled = false; return toast(errMsg(error), true); }
+    toast(`Install pencilled in for ${fullName(c)}`); S.sel = data.id; S.extras = []; await loadBookings(true); renderRun();
+  };
 }
 
 // ---------- one session: change hours, block times, close ----------
@@ -1013,7 +1114,7 @@ function renderSide() {
   const paidTotal = b.payments.reduce((a,p)=>a+p.amount_cents,0)/100;
   const flag = profileFlag(c, b);
   const fl = floating(b), sRow = S.sessions.find(x => x.session_date === b.session_date && x.location_id === b.location_id);
-  const when = fl ? '≈ ' + fmtTime((sRow && estFor(sRow).get(b.id)) ?? b.start_min) : fmtTime(b.start_min);
+  const when = isInstall(b) ? (b.details.locked ? '' : '≈ ') + fmtTime(installEstimate(b, sRow)) : fl ? '≈ ' + fmtTime((sRow && estFor(sRow).get(b.id)) ?? b.start_min) : fmtTime(b.start_min);
   el.innerHTML = `<div class="label">${esc(LOC(b.location_id))} · ${longDate(b.session_date)} · <span class="t">${when}</span></div>
     <h2 style="font-size:1.5rem;cursor:pointer" id="edN" title="Open customer details">${esc(fullName(c))} <span style="font-size:1rem;color:var(--brand)">✎</span></h2><div class="empty">${esc(c.mobile || '')}</div>
     ${b.vehicle || c.vehicle ? `<div style="font-weight:700;margin-top:4px">Vehicle: ${esc(vLabel(c, b.vehicle))}</div>` : ''}
@@ -1025,7 +1126,7 @@ function renderSide() {
       <div class="fact"><div class="label">Theft protection</div><div class="v">${ev.theftProtection ? 'Yes' : 'No'}</div></div>
       <div class="fact"><div class="label">Apply date</div><div class="v">${yDate(d.exitEligible)}${c.apply_date_set_by==='customer'?'<br><span class="flag" style="color:var(--warn)">NZTA date, set by customer</span>':''}</div></div></div>
     ${flag ? `<div class="alert">⚑ ${esc(flag)}</div>` : ''}
-    ${nextDueBox(b, ev)}
+    ${isInstall(b) ? installBox(b) : nextDueBox(b, ev)}
     ${billBox(b, paid)}
     ${fl && !b.approved_at ? `<div class="alert" style="background:var(--warn-soft);color:var(--ink)">Placeholder only — no time is held. It moves later if a service books that time.</div>
       <div class="grid2"><button class="btn brand" id="apRem">Approve removal</button><button class="btn ghost" data-st="cancelled">Decline</button></div>` : ''}
@@ -1064,6 +1165,7 @@ function renderSide() {
         <div class="grid2"><button class="btn ghost" data-st="arrived">Arrived</button><button class="btn ghost" data-st="no_show">No-show</button></div>
         <div style="margin-top:6px"><button class="btn ghost" data-st="cancelled" style="width:100%">Cancel booking</button></div>`}`;
   el.scrollTop = scrollWas;
+  if (isInstall(b)) wireInstall(b);
   const backToRun = async () => { await loadBookings(true); renderRun(); };
   const ucr = $('useCr'); if (ucr) ucr.onchange = () => { S.useCredit = ucr.checked; renderSide(); };
   const cro = $('crOpen'); if (cro) cro.onclick = () => { cro.remove(); creditPanel($('crBox'), b.customer_id, () => renderSide()); };
@@ -1242,9 +1344,9 @@ async function takePayment(b, method, total, creditUse = 0) {
 }
 
 // ---------- add booking (staff) ----------
-async function renderAddBooking(locId, walkin = false) {
+async function renderAddBooking(locId, walkin = false, install = false) {
   const el = $('side');
-  el.innerHTML = `<h2>${walkin ? 'Walk-in sale' : 'Add booking'} · ${esc(LOC(locId))}</h2><div class="empty">${longDate(S.date)}${walkin ? ' · no booking needed, goes straight to checkout' : ''}</div>
+  el.innerHTML = `<h2>${install ? 'Install after the session' : walkin ? 'Walk-in sale' : 'Add booking'} · ${esc(LOC(locId))}</h2><div class="empty">${longDate(S.date)}${walkin ? ' · no booking needed, goes straight to checkout' : ''}</div>
     <input id="abQ" placeholder="Search name or mobile" style="width:100%;margin-top:10px" autocomplete="off"><div class="list" id="abList"></div>
     <button class="btn ghost" id="abNew" style="margin-top:8px">+ New customer</button><div id="abPick"></div>`;
   $('abNew').onclick = () => {
@@ -1272,6 +1374,7 @@ async function renderAddBooking(locId, walkin = false) {
   };
   let t; $('abQ').oninput = () => { clearTimeout(t); t = setTimeout(search, 250); }; $('abQ').focus();
   function pick(c, selV = null) {
+    if (install) return installForm(c, locId);
     if (c._veh === undefined) {
       db.from('customer_vehicles').select('*').eq('customer_id', c.id).is('removed_at', null).order('created_at')
         .then(r => { c._veh = r.data || []; pick(c, selV); });
