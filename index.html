@@ -71,10 +71,11 @@ tr.free td{color:var(--muted)}
 .p-pencilled{background:var(--warn-soft);color:var(--warn)} .p-confirmed{background:var(--bg);color:var(--ink)} .p-arrived{background:var(--brand-soft);color:var(--brand)}
 .p-completed{background:var(--ok-soft);color:var(--ok)} .p-no_show,.p-cancelled{background:var(--bad-soft);color:var(--bad)}
 .flag{color:var(--bad);font-weight:600;font-size:.8rem}
-.side{position:sticky;top:70px}
+.side{position:sticky;top:70px;max-height:calc(100vh - 80px);overflow-y:auto;overscroll-behavior:contain}
+.credit{color:var(--ok)}
 .m-only{display:none}
 @media (max-width:640px){.d-only{display:none}.m-only{display:block}td,th{padding:7px 5px}table{font-size:.88rem}.panel{padding:10px}}
-@media (max-width:960px){.side{position:static}}
+@media (max-width:960px){.side{position:static;max-height:none;overflow:visible}}
 .facts{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px}
 .fact{background:var(--bg);border-radius:8px;padding:7px 9px}.fact .v{font-weight:700}
 .co-line{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px dashed var(--line)}
@@ -609,6 +610,8 @@ const SVC = id => services.find(s => s.id === id) || { id, name: id, price: 0 };
 // an extra on a sale is either a service id ('vr') or a custom line { n: name, q: quantity, p: price each }
 const xPrice = x => typeof x === 'string' ? SVC(x).price : Math.round(x.q * x.p * 100) / 100;
 const xName = x => typeof x === 'string' ? SVC(x).name : `${x.n} (${+x.q} × ${money(x.p)})`;
+// what the booking itself is for: a blank walk-in sale has no main item, only the lines added at checkout
+const mainName = b => b.details?.blank ? 'Walk-in sale' : b.details?.temporary ? 'Temporary removal' : SVC(b.service_id).name;
 const lsGet = k => { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } };
 const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} };
 // DB row -> engine customer shape
@@ -648,7 +651,7 @@ const estFor = s => removalEstimates(sessOf(s), S.bookings.filter(b => b.locatio
 const hmOf = v => { const [h, m] = String(v).split(':').map(Number); return h * 60 + m; };
 
 // ---------- state ----------
-const S = { view: 'run', date: null, sessions: [], bookings: [], sel: null, extras: [], custQ: '', custSel: null, customers: [], priceReqs: [], custFilter: 'all' };
+const S = { view: 'run', date: null, sessions: [], bookings: [], sel: null, extras: [], custQ: '', custSel: null, customers: [], priceReqs: [], custFilter: 'all', credits: {}, useCredit: false, creditsOff: false };
 const PR = id => S.priceReqs.find(r => r.customer_id === id);
 async function loadPriceReqs() {
   const [pr, nu, eq] = await Promise.all([db.from('price_requests').select('*').eq('status', 'requested'), db.from('customers').select('id').eq('self_registered', true).limit(200), db.from('enquiries').select('id').eq('status', 'new').limit(200)]);
@@ -727,6 +730,7 @@ async function loadBookings(noLock) {
   if (cids.length) { const r = await db.from('bills').select('id,customer_id,booking_id,description,amount_cents,status,sent_via,created_at').in('customer_id', cids).neq('status', 'cancelled'); bills = r.data || []; }
   data.forEach(b => { b.bill = bills.find(x => x.booking_id === b.id); b.owing = bills.filter(x => x.customer_id === b.customer_id && x.status === 'sent' && x.booking_id !== b.id); });
   S.bookings = data;
+  await loadCredits(cids);
   await loadPriceReqs();
   // On the day itself, approved removals take their solid time (once, then reload).
   if (!noLock && S.date === nzToday()) {
@@ -736,6 +740,16 @@ async function loadBookings(noLock) {
       if (rs.every(r => !r.error)) { toast('Approved removals now have their time locked in'); return loadBookings(true); }
     }
   }
+}
+
+// Account credit per customer: sum of customer_credits rows (+ added, − used). Hidden until step3 SQL is run.
+async function loadCredits(custIds) {
+  if (!custIds.length) return;
+  const { data, error } = await db.from('customer_credits').select('customer_id, amount_cents').in('customer_id', custIds);
+  if (error) { S.creditsOff = true; return; }
+  S.creditsOff = false;
+  custIds.forEach(id => S.credits[id] = 0);
+  (data || []).forEach(r => S.credits[r.customer_id] = (S.credits[r.customer_id] || 0) + r.amount_cents);
 }
 
 // ---------- render ----------
@@ -790,8 +804,8 @@ function renderRun() {
        const pill = fl ? (b.approved_at ? ['pencilled', 'Approved · time not locked'] : ['pencilled', 'Needs approval'])
          : b.kind === 'service' && b.status === 'pencilled' ? ['pencilled', 'Request · confirm?'] : [b.status, STATUS[b.status] || b.status];
        return `<tr class="row ${b.id===S.sel?'sel':''}" data-b="${b.id}"><td class="t">${fl ? '≈ ' + fmtTime(rTime(b)) : fmtTime(b.start_min)}</td>
-         <td><b>${esc(fullName(c))}</b>${b.vehicle ? ` <span class="empty">· ${esc(b.vehicle.label)}</span>` : ''}<span class="m-only empty">Installed ${yDate(b.vehicle ? b.vehicle.install_date : c.install_date)} · ${esc(SVC(b.service_id).name)} · ${money(b.price_cents/100)}</span>${flag?`<span class="flag" style="display:block">⚑ ${esc(flag)}</span>`:''}</td><td class="t d-only">${yDate(b.vehicle ? b.vehicle.install_date : c.install_date)}</td>
-         <td class="d-only">${esc(SVC(b.service_id).name)}</td><td class="t d-only">${money(b.price_cents/100)}</td><td><span class="pill p-${pill[0]}">${pill[1]}</span></td></tr>`;
+         <td><b>${esc(fullName(c))}</b>${b.vehicle ? ` <span class="empty">· ${esc(b.vehicle.label)}</span>` : ''}<span class="m-only empty">Installed ${yDate(b.vehicle ? b.vehicle.install_date : c.install_date)} · ${esc(mainName(b))} · ${money(b.price_cents/100)}</span>${flag?`<span class="flag" style="display:block">⚑ ${esc(flag)}</span>`:''}</td><td class="t d-only">${yDate(b.vehicle ? b.vehicle.install_date : c.install_date)}</td>
+         <td class="d-only">${esc(mainName(b))}</td><td class="t d-only">${money(b.price_cents/100)}</td><td><span class="pill p-${pill[0]}">${pill[1]}</span></td></tr>`;
      };
      const times = slotTimes(sess);
      return `<div class="session"><div class="s-head"><h3>${esc(LOC(s.location_id))} <span class="t" style="font-size:.9rem;color:var(--muted)">${fmtTime(s.start_min)}–${fmtTime(s.end_min)}</span>${s.request_only ? ' <span class="pill p-pencilled">Request only</span>' : ''}${s.fill_backwards ? ' <span class="empty" style="font-size:.8rem">books from the last slot back</span>' : ''}</h3>
@@ -808,7 +822,7 @@ function renderRun() {
    }).join('') : '<div class="empty">No sessions this day.</div>'}</div>
    <aside class="panel side" id="side"></aside></div>`;
   document.querySelectorAll('[data-d]').forEach(b => b.onclick = async () => { S.date = b.dataset.d; S.sel = null; await loadBookings(); renderRun(); });
-  document.querySelectorAll('tr.row').forEach(tr => tr.onclick = () => { S.sel = tr.dataset.b; S.extras = []; renderRun(); });
+  document.querySelectorAll('tr.row').forEach(tr => tr.onclick = () => { S.sel = tr.dataset.b; S.extras = []; S.useCredit = false; renderRun(); });
   document.querySelectorAll('[data-add]').forEach(b => b.onclick = () => { renderAddBooking(b.dataset.add); showSide(); });
   document.querySelectorAll('[data-walk]').forEach(b => b.onclick = () => { renderAddBooking(b.dataset.walk, true); showSide(); });
   document.querySelectorAll('[data-msg]').forEach(b => b.onclick = () => { renderMessage(b.dataset.msg); showSide(); });
@@ -883,7 +897,12 @@ function renderSide() {
     ['iqCx','iqSub','iqTp'].forEach(id => $(id).onchange = calc); calc(); return;
   }
   const c = b.customer || {}, d = customerDates(eng(c), b.session_date), ev = engV(c, b.vehicle), dv = customerDates(ev, b.session_date), paid = b.payments.length > 0;
-  const total = Math.round((b.price_cents / 100 + S.extras.reduce((a, x) => a + xPrice(x), 0)) * 100) / 100;
+  const scrollWas = el.scrollTop;
+  const gross = Math.round((b.price_cents / 100 + S.extras.reduce((a, x) => a + xPrice(x), 0)) * 100) / 100;
+  const creditBal = (S.credits[b.customer_id] || 0) / 100;
+  const creditUse = !paid && S.useCredit ? Math.round(Math.max(0, Math.min(creditBal, gross)) * 100) / 100 : 0;
+  const total = Math.round((gross - creditUse) * 100) / 100;
+  const paidTotal = b.payments.reduce((a,p)=>a+p.amount_cents,0)/100;
   const flag = profileFlag(c, b);
   const fl = floating(b), sRow = S.sessions.find(x => x.session_date === b.session_date && x.location_id === b.location_id);
   const when = fl ? '≈ ' + fmtTime((sRow && estFor(sRow).get(b.id)) ?? b.start_min) : fmtTime(b.start_min);
@@ -905,10 +924,13 @@ function renderSide() {
     ${fl && b.approved_at ? `<div class="alert" style="background:var(--warn-soft);color:var(--ink)">Approved. The time is still approximate and locks in on the morning of the session.</div>
       <div class="grid2"><button class="btn" id="lockRem">Lock time now</button><button class="btn ghost" data-st="cancelled">Decline</button></div>` : ''}
     ${!fl && b.status === 'pencilled' ? `${b.kind === 'service' ? '<div class="alert" style="background:var(--warn-soft);color:var(--ink)">Late request, made after online bookings closed. The customer has been told not to come until you confirm. They get an email either way.</div>' : ''}<div class="grid2"><button class="btn brand" data-st="confirmed">${b.kind === 'removal' ? 'Accept removal' : 'Confirm request'}</button><button class="btn ghost" data-st="cancelled">Decline</button></div>` : ''}
-    <div style="margin-top:10px"><div class="co-line"><span>${esc(b.details?.temporary ? 'Temporary removal' : SVC(b.service_id).name)}</span><span class="t">${money(b.price_cents/100)}</span></div>
+    <div style="margin-top:10px">${b.details?.blank && !b.price_cents ? '' : `<div class="co-line"><span>${esc(mainName(b))}${b.details?.price_note ? `<br><span class="empty">Changed from ${money((b.details.orig_price_cents ?? 0) / 100)} — ${esc(b.details.price_note)}</span>` : ''}</span>
+        <span class="t">${money(b.price_cents/100)}${paid ? '' : ' <button class="chip" id="chgPrice" style="padding:0 8px">Edit price</button>'}</span></div><div id="priceBox"></div>`}
       ${S.extras.map((x, i) => `<div class="co-line"><span>${esc(xName(x))}${paid ? '' : ` <button class="chip" data-rx="${i}" title="Remove" style="padding:0 7px">×</button>`}</span><span class="t">${money(xPrice(x))}</span></div>`).join('')}
+      ${paid && b.details?.credit_used_cents ? `<div class="co-line credit"><span>Account credit used</span><span class="t">−${money(b.details.credit_used_cents / 100)}</span></div>` : ''}
       ${paid ? '' : `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"><button class="chip" data-x="vr">+ Violation reset $100</button><button class="chip" data-x="vr-disc">+ Mech/battery $60</button>${S.extras.length?'<button class="chip" id="clrX">Clear</button>':''}</div>
       <div style="display:flex;gap:6px;margin-top:6px"><select id="moreFee" style="flex:1"><option value="">More Dräger charges…</option>
+        <optgroup label="Services">${services.filter(x=>['service','violation','removal','install','changeover'].includes(x.group)).map(x=>`<option value="${x.id}">${esc(x.name)} — ${money(x.price)}</option>`).join('')}</optgroup>
         <optgroup label="Fees">${services.filter(x=>x.group==='fee').map(x=>`<option value="${x.id}">${esc(x.name)} — ${money(x.price)}</option>`).join('')}</optgroup>
         <optgroup label="Damage">${services.filter(x=>x.group==='damage').map(x=>`<option value="${x.id}">${esc(x.name)} — ${money(x.price)}</option>`).join('')}</optgroup></select><button class="btn ghost" id="addFee">Add</button></div>
       <div style="display:flex;gap:6px;margin-top:6px;align-items:center;flex-wrap:wrap"><b style="min-width:70px">Call-out</b>
@@ -918,16 +940,33 @@ function renderSide() {
       <div style="display:flex;gap:6px;margin-top:6px;align-items:center;flex-wrap:wrap"><input id="lbN" value="Labour" placeholder="What for" style="min-width:70px;flex:1">
         <input id="lbQ" type="number" inputmode="decimal" step="any" min="0" value="1" placeholder="qty / hrs" style="width:64px"> ×
         $<input id="lbP" type="number" inputmode="decimal" step="0.01" min="0" placeholder="each" value="${esc(lsGet('wi_lb_rate'))}" style="width:80px">
-        <button class="btn ghost" id="addLb">Add</button></div>`}
-      <div class="co-total"><span>Total</span><span class="t">${money(paid ? b.payments.reduce((a,p)=>a+p.amount_cents,0)/100 : total)}</span></div>
-      <div class="empty">Includes GST ${money((paid ? b.payments.reduce((a,p)=>a+p.amount_cents,0)/100 : total) * 3 / 23)}</div></div>
-    ${paid ? `<div class="alert" style="background:var(--ok-soft);color:var(--ok)">Paid by ${esc(b.payments.map(p => p.method === 'online' ? 'card online (Stripe)' : p.method === 'card_terminal' ? 'EFTPOS' : p.method.replace(/_/g,' ')).join(', '))}.</div>
+        <button class="btn ghost" id="addLb">Add</button></div>
+      ${!S.creditsOff && creditBal > 0 ? `<label class="chip credit" style="display:inline-flex;gap:6px;margin-top:8px"><input type="checkbox" id="useCr" ${S.useCredit ? 'checked' : ''}> Use account credit (${money(creditBal)} available)</label>` : ''}
+      ${creditUse ? `<div class="co-line credit"><span>Account credit</span><span class="t">−${money(creditUse)}</span></div>` : ''}`}
+      <div class="co-total"><span>Total</span><span class="t">${money(paid ? paidTotal : total)}</span></div>
+      <div class="empty">Includes GST ${money((paid ? paidTotal : total) * 3 / 23)}</div></div>
+    ${S.creditsOff ? '' : `<div style="margin-top:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">${creditBal > 0 && (paid || !S.useCredit) ? `<span class="empty credit">Account credit: ${money(creditBal)}</span>` : ''}<button class="chip" id="crOpen">Add / view account credit</button></div><div id="crBox" style="margin-top:6px"></div>`}
+    ${paid && !paidTotal && b.details?.credit_used_cents ? `<div class="alert" style="background:var(--ok-soft);color:var(--ok)">Covered by account credit.</div>
       <div id="undoBox" style="margin-top:8px"><button class="btn ghost" id="undoPay" style="width:100%">Cancel sale and redo</button></div>`
+      : paid ? `<div class="alert" style="background:var(--ok-soft);color:var(--ok)">Paid by ${esc(b.payments.map(p => p.method === 'online' ? 'card online (Stripe)' : p.method === 'card_terminal' ? 'EFTPOS' : p.method.replace(/_/g,' ')).join(', '))}.</div>
+      <div id="undoBox" style="margin-top:8px"><button class="btn ghost" id="undoPay" style="width:100%">Cancel sale and redo</button></div>`
+      : creditUse > 0 && total === 0 ? `<div style="margin-top:12px"><button class="btn" data-pay="on_account" style="width:100%">Complete — covered by account credit</button></div>`
       : `<div class="label" style="margin-top:12px">Take payment</div><div class="grid2">
         ${[['card_terminal','EFTPOS'],['cash','Cash'],['on_account','On account']].map(([v,l],i)=>`<button class="btn ${i?'ghost':''}" data-pay="${v}">${l}</button>`).join('')}</div>
         <div class="grid2"><button class="btn ghost" data-st="arrived">Arrived</button><button class="btn ghost" data-st="no_show">No-show</button></div>
         <div style="margin-top:6px"><button class="btn ghost" data-st="cancelled" style="width:100%">Cancel booking</button></div>`}`;
+  el.scrollTop = scrollWas;
   const backToRun = async () => { await loadBookings(true); renderRun(); };
+  const ucr = $('useCr'); if (ucr) ucr.onchange = () => { S.useCredit = ucr.checked; renderSide(); };
+  const cro = $('crOpen'); if (cro) cro.onclick = () => { cro.remove(); creditPanel($('crBox'), b.customer_id, () => renderSide()); };
+  const cp = $('chgPrice'); if (cp) cp.onclick = () => {
+    $('priceBox').innerHTML = `<div style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0;align-items:center">
+      $<input id="npPrice" type="number" inputmode="decimal" step="0.01" min="0" value="${(b.price_cents / 100).toFixed(2)}" style="width:90px" aria-label="New price">
+      <input id="npWhy" placeholder="Reason (e.g. goodwill)" style="flex:1 1 140px"><button class="btn ghost" id="npSave">Save</button><button class="chip" id="npCancel">✕</button></div>`;
+    $('npCancel').onclick = () => renderSide();
+    $('npSave').onclick = () => changePrice(b, parseFloat($('npPrice').value), $('npWhy').value.trim());
+    $('npPrice').select();
+  };
   $('edC').onclick = $('edN').onclick = () => { editCustomer(c, 'side', backToRun); showSide(); };
   wirePriceReq(el, backToRun);
   wireBills(el, b, backToRun);
@@ -951,7 +990,7 @@ function renderSide() {
     const { error } = await db.rpc('lock_removals', { p_location: b.location_id, p_date: b.session_date }); if (error) return toast(errMsg(error), true);
     toast('Time locked in — services now book around it'); await loadBookings(true); renderRun();
   };
-  el.querySelectorAll('[data-pay]').forEach(x => x.onclick = () => takePayment(b, x.dataset.pay, total));
+  el.querySelectorAll('[data-pay]').forEach(x => x.onclick = () => takePayment(b, x.dataset.pay, total, creditUse));
   if ($('ndSet')) $('ndSet').onclick = () => { const v = $('ndDate').value; if (!v) return toast('Pick a date', true); setNextDue(b, $('ndSet').dataset.normal, v); };
   if ($('ndUndo')) $('ndUndo').onclick = () => setNextDue(b, $('ndUndo').dataset.normal, null);
   const up = $('undoPay'); if (up) up.onclick = () => {
@@ -1051,7 +1090,11 @@ function showSide() { if (matchMedia('(max-width:960px)').matches) setTimeout(()
 async function undoPayment(b) {
   const { error } = await db.from('payments').delete().eq('booking_id', b.id);
   if (error) return toast(errMsg(error), true);
-  await db.from('bookings').update({ status: 'arrived' }).eq('id', b.id);
+  // give back any account credit this sale used
+  const { credit_used_cents, ...restDetails } = b.details || {};
+  if (credit_used_cents) await db.from('customer_credits').delete().eq('booking_id', b.id).lt('amount_cents', 0);
+  await db.from('bookings').update({ status: 'arrived', ...(credit_used_cents ? { details: restDetails } : {}) }).eq('id', b.id);
+  S.useCredit = !!credit_used_cents;
   const pr = b.payments[0]?.provider_ref || '';
   S.extras = pr.startsWith('extras2:') ? (() => { try { return JSON.parse(pr.slice(8)); } catch (e) { return []; } })()
     : pr.startsWith('extras:') ? pr.slice(7).split(',') : [];
@@ -1065,13 +1108,29 @@ async function setStatus(b, st) {
   if (st === 'cancelled') S.sel = null;
   await loadBookings(); renderRun();
 }
-async function takePayment(b, method, total) {
+// Change what this customer pays for the booked item (goodwill, agreed price…). Keeps the original price and the reason.
+async function changePrice(b, price, why) {
+  if (!(price >= 0)) return toast('Enter a price of $0 or more', true);
+  if (!why) return toast('Add a short reason', true);
+  const orig = b.details?.orig_price_cents ?? b.price_cents, cents = Math.round(price * 100);
+  const details = { ...(b.details || {}), orig_price_cents: orig, price_note: why };
+  if (cents === orig) { delete details.orig_price_cents; delete details.price_note; }
+  const { error } = await db.from('bookings').update({ price_cents: cents, details }).eq('id', b.id);
+  if (error) return toast(errMsg(error), true);
+  toast('Price changed to ' + money(price)); await loadBookings(true); renderRun();
+}
+async function takePayment(b, method, total, creditUse = 0) {
+  if (total < 0) return toast('Total is below $0 — reduce the discount', true);
   document.querySelectorAll('[data-pay]').forEach(x => x.disabled = true);
   const { error } = await db.from('payments').insert({ booking_id: b.id, customer_id: b.customer_id, amount_cents: Math.round(total * 100), method,
     provider_ref: !S.extras.length ? null : S.extras.every(x => typeof x === 'string') ? 'extras:' + S.extras.join(',') : 'extras2:' + JSON.stringify(S.extras) });
   if (error) { document.querySelectorAll('[data-pay]').forEach(x => x.disabled = false); return toast(errMsg(error), true); }
-  await db.from('bookings').update({ status: 'completed' }).eq('id', b.id);
-  S.extras = []; toast(`Paid ${money(total)}`); await loadBookings(); renderRun();
+  if (creditUse > 0) {
+    const r = await db.from('customer_credits').insert({ customer_id: b.customer_id, booking_id: b.id, amount_cents: -Math.round(creditUse * 100), reason: 'Used at checkout ' + longDate(b.session_date) });
+    if (r.error) toast('Paid, but the credit could not be taken off their account: ' + errMsg(r.error), true);
+  }
+  await db.from('bookings').update({ status: 'completed', ...(creditUse > 0 ? { details: { ...(b.details || {}), credit_used_cents: Math.round(creditUse * 100) } } : {}) }).eq('id', b.id);
+  S.extras = []; S.useCredit = false; toast(total ? `Paid ${money(total)}` : 'Done — covered by account credit'); await loadBookings(); renderRun();
 }
 
 // ---------- add booking (staff) ----------
@@ -1111,11 +1170,12 @@ async function renderAddBooking(locId, walkin = false) {
       return;
     }
     let opts = allowedServices(engV(c, selV), services, S.date).filter(s => s.group !== 'changeover');
-    if (walkin) opts = opts.filter(s => s.group !== 'removal');
+    // a walk-in can be anything: their usual items, a removal, or a blank sale (labour, call-out, parts…) built at checkout
+    if (walkin) opts = [...opts, { id: '__blank', name: 'Labour / other', price: 0, note: 'Nothing pre-set — add labour, call-out km or anything else at checkout' }];
     $('abList').innerHTML = '';
     $('abPick').innerHTML = `<div style="margin-top:10px"><b>${esc(fullName(c))}</b> · installed ${yDate(selV ? selV.install_date : c.install_date)}</div>
       ${c._veh.length ? `<div class="label" style="margin-top:8px">Which vehicle?</div><div style="display:flex;gap:6px;flex-wrap:wrap">${[null, ...c._veh].map(v => `<button class="chip" data-vx="${v ? v.id : ''}" aria-pressed="${(selV ? selV.id : '') === (v ? v.id : '')}">${esc(vLabel(c, v))}</button>`).join('')}</div>` : ''}
-      <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px">${opts.map(s => `<button class="btn ghost" style="text-align:left" data-s="${s.id}">${esc(s.name)} · ${money(s.price)}${s.note?`<br><span class="empty">${esc(s.note)}</span>`:''}</button>`).join('')}</div>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px">${opts.map(s => `<button class="btn ghost" style="text-align:left" data-s="${s.id}">${esc(s.name)}${s.id === '__blank' ? '' : ' · ' + money(s.price)}${s.note?`<br><span class="empty">${esc(s.note)}</span>`:''}</button>`).join('')}</div>
       <div id="remExtra"></div>`;
     $('abPick').querySelectorAll('[data-vx]').forEach(x => x.onclick = () => pick(c, c._veh.find(v => v.id === x.dataset.vx) || null));
     $('abPick').querySelectorAll('[data-s]').forEach(btn => btn.onclick = async () => {
@@ -1137,26 +1197,31 @@ async function renderAddBooking(locId, walkin = false) {
     });
   }
   async function doBook(c, svc, details, selV) {
-    if (walkin) return doWalkin(c, svc, selV);
+    if (walkin) return doWalkin(c, svc, selV, details);
     const { data, error } = await db.rpc('book_next_slot', { p_location: locId, p_date: S.date, p_service: svc, p_details: details, p_customer: c.id });
     if (error) return toast(errMsg(error), true);
     toast(`Booked ${fullName(c)} at ${fmtTime(data.start_min)}`); S.sel = data.id; await loadBookings(); renderRun();
   }
   // Walk-in: recorded at the current time (off the 5-min grid), already arrived, straight to checkout.
-  async function doWalkin(c, svcId, selV) {
-    const svc = allowedServices(engV(c, selV), services, S.date).find(s => s.id === svcId) || SVC(svcId);
+  async function doWalkin(c, svcId, selV, details = {}) {
+    const blank = svcId === '__blank';
+    // blank sale: filed under 'Additional labour' at $0 so the database is happy; the real lines are added at checkout
+    const svc = blank ? { ...SVC('labour'), price: 0, duration: 5 } : allowedServices(engV(c, selV), services, S.date).find(s => s.id === svcId) || SVC(svcId);
+    const { vehicle_id, ...det } = details;
+    if (blank) det.blank = true;
+    if (svcId === 'rem' && removalRequirements(eng(c), S.date).temporary) det.temporary = true;
     const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Pacific/Auckland' }));
     const sess = S.sessions.find(x => x.location_id === locId && x.session_date === S.date);
     let t = S.date === nzToday() ? now.getHours() * 60 + now.getMinutes() : (sess ? sess.end_min : 720);
     const used = new Set(S.bookings.filter(b => b.location_id === locId).map(b => b.start_min));
     while (used.has(t)) t++;
     const rowW = { vehicle_id: selV ? selV.id : null, customer_id: c.id, service_id: svc.id, location_id: locId, session_date: S.date, start_min: t,
-      duration_mins: svc.duration || 5, kind: 'service', status: 'arrived', source: 'walkin', price_cents: Math.round((svc.price || 0) * 100), details: {} };
+      duration_mins: svc.duration || 5, kind: 'service', status: 'arrived', source: 'walkin', price_cents: Math.round((svc.price || 0) * 100), details: det };
     // a walk-in is on the sheet but holds no bookable slot
     let { data, error } = await db.from('bookings').insert({ ...rowW, time_locked: false }).select().single();
     if (error && /time_locked/.test(errMsg(error))) ({ data, error } = await db.from('bookings').insert(rowW).select().single());
     if (error) return toast(errMsg(error), true);
-    toast(`Walk-in added: ${fullName(c)}`); S.sel = data.id; S.extras = []; await loadBookings(); renderRun();
+    toast(`Walk-in added: ${fullName(c)}`); S.sel = data.id; S.extras = []; S.useCredit = false; await loadBookings(); renderRun();
   }
 }
 
@@ -1283,6 +1348,29 @@ function editEnquiry(e) {
     toast('Customer record made — set their install date and price under All'); e.customer_id = true; editEnquiry(e);
   };
 }
+// ---------- account credit ----------
+// Balance, history and an "add credit" form for one customer. + = credit added, − = used or taken back.
+async function creditPanel(box, custId, onChange) {
+  const { data, error } = await db.from('customer_credits').select('*').eq('customer_id', custId).order('created_at', { ascending: false });
+  if (error) { box.innerHTML = `<div class="empty">Account credit isn't switched on yet — run step3-custom-lines-and-credit.sql in Supabase.</div>`; return; }
+  const bal = data.reduce((a, r) => a + r.amount_cents, 0) / 100;
+  box.innerHTML = `<div class="label">Account credit</div><div class="co-total" style="padding-top:2px;font-size:1.3rem"><span>Balance</span><span class="t ${bal > 0 ? 'credit' : ''}">${money(bal)}</span></div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;align-items:center">$<input class="crAmt" type="number" inputmode="decimal" step="0.01" placeholder="amount" style="width:90px" aria-label="Credit amount">
+      <input class="crWhy" placeholder="Reason, e.g. overpaid last month" style="flex:1 1 140px"><button class="btn ghost crAdd">Add credit</button></div>
+    <div class="empty" style="font-size:.8rem;margin-top:2px">Comes off their next bill when you tick “Use account credit” at checkout. Use a minus amount to take credit back off.</div>
+    ${data.length ? `<div style="margin-top:8px">${data.slice(0, 12).map(r => `<div class="co-line" style="font-size:.88rem"><span>${billDay(r.created_at)} · ${esc(r.reason || '')}</span><span class="t ${r.amount_cents > 0 ? 'credit' : ''}">${r.amount_cents > 0 ? '+' : '−'}${money(Math.abs(r.amount_cents) / 100)}</span></div>`).join('')}</div>` : ''}`;
+  box.querySelector('.crAdd').onclick = async () => {
+    const amt = parseFloat(box.querySelector('.crAmt').value), why = box.querySelector('.crWhy').value.trim();
+    if (!amt) return toast('Enter an amount', true);
+    if (!why) return toast('Add a reason', true);
+    if (amt < 0 && -amt > bal + 0.001) return toast(`They only have ${money(bal)} credit`, true);
+    const { error } = await db.from('customer_credits').insert({ customer_id: custId, amount_cents: Math.round(amt * 100), reason: why.slice(0, 120) });
+    if (error) return toast(errMsg(error), true);
+    toast(amt > 0 ? `Added ${money(amt)} credit` : `Took ${money(-amt)} credit off`);
+    S.credits[custId] = Math.round((bal + amt) * 100);
+    onChange ? onChange() : creditPanel(box, custId);
+  };
+}
 function editCustomer(c, target = 'cside', after = renderCustomers) {
   const d = customerDates(eng(c), nzToday()), el = $(target);
   const m = allowedServices(eng(c), services, nzToday()).find(x => x.group === 'service');
@@ -1306,8 +1394,10 @@ function editCustomer(c, target = 'cside', after = renderCustomers) {
       <label class="full">Notes<textarea id="f_no" rows="3">${esc(c.notes)}</textarea></label>
       <div class="full empty">Apply date ${yDate(d.exitEligible)} · subsidy ${d.subsidyActive ? (d.subsidyOverdue ? 'ACTIVE, 15 months passed ' + yDate(d.subsidyEnds) + ' — untick Subsidised when Dräger emails' : d.subsidyEnds ? 'expected until ' + yDate(d.subsidyEnds) : 'active') : 'none'}<span id="nsd">${(w => w ? ' · next service due ' + yDate(w.due) : '')(serviceWindow(eng(c), nzToday()))}</span></div>
       <div class="full"><button class="btn brand">Save</button></div></form>
-    <div id="vehBox" style="margin-top:16px;border-top:1px solid var(--line);padding-top:10px"></div>`;
+    <div id="vehBox" style="margin-top:16px;border-top:1px solid var(--line);padding-top:10px"></div>
+    <div id="credBox" style="margin-top:16px;border-top:1px solid var(--line);padding-top:10px"></div>`;
   loadVehicles(c);
+  creditPanel($('credBox'), c.id);
   if ($('edBack')) $('edBack').onclick = after;
   wirePriceReq(el, after);
   if ($('mkChecked')) $('mkChecked').onclick = async () => {
