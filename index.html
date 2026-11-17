@@ -374,16 +374,23 @@ function customerDates(c, today) {
 // The rollover date is the install date unless it was changed (e.g. a second device was fitted later).
 // `servicedDates` = days a MONTHLY SERVICE was actually done and charged (not a violation reset or a
 // data reading). A window that already has one is finished, so the next month's window is returned.
+// A service up to 20 days before the due date counts for that month (an early visit; the previous
+// month's window has closed by then).
+// `c.dueOverrides` = [{ normal_due, due }]: Matt moved that one month's due date (e.g. over Christmas).
+// The month after goes back to the normal day.
+const EARLY_SERVICE_DAYS = 20;
 function serviceWindow(c, onOrAfter, servicedDates = []) {
   const anchor = c.rolloverDate || c.installDate;
   if (!anchor) return null;
   for (let i = 0; i < 600; i++) {
-    const due = addMonths(anchor, i);
+    const normalDue = addMonths(anchor, i);
     if (i === 0 && !c.rolloverDate) continue;   // install day itself is not a service
+    const ov = (c.dueOverrides || []).find(o => o.normal_due === normalDue);
+    const due = ov ? ov.due : normalDue;
     const opens = addDays(due, -7), closes = addDays(due, 7);
     if (closes < onOrAfter) continue;
-    if (servicedDates.some(d => d >= opens && d <= closes)) continue;   // this month's service is done
-    return { due, opens, closes };
+    if (servicedDates.some(d => d >= addDays(due, -EARLY_SERVICE_DAYS) && d <= closes)) continue;   // this month's service is done
+    return { due, normalDue, moved: !!ov, opens, closes };
   }
   return null;
 }
@@ -606,10 +613,13 @@ const lsGet = k => { try { return localStorage.getItem(k) || ''; } catch (e) { r
 const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} };
 // DB row -> engine customer shape
 const eng = c => ({ id: c.id, installDate: c.install_date, rolloverDate: c.rollover_date, subsidised: c.subsidised, subsidyStart: c.subsidy_start, theftProtection: c.theft_protection,
-                    applyDate: c.apply_date, applyDateSetBy: c.apply_date_set_by, alerts: c.alerts });
+                    applyDate: c.apply_date, applyDateSetBy: c.apply_date_set_by, alerts: c.alerts,
+                    dueOverrides: (c.due_overrides || []).filter(o => !o.vehicle_id) });
 // the same customer, seen through one of their extra vehicles: that vehicle's dates and price, the customer's apply date
 const engV = (c, v) => !v ? eng(c) : { ...eng(c), installDate: v.install_date, rolloverDate: v.rollover_date, subsidised: v.subsidised, subsidyStart: null,
-  theftProtection: v.theft_protection, applyDate: customerDates(eng(c), null).exitEligible };
+  theftProtection: v.theft_protection, applyDate: customerDates(eng(c), null).exitEligible,
+  dueOverrides: (c.due_overrides || []).filter(o => o.vehicle_id === v.id) };
+const XMAS_FROM = '2026-12-19', XMAS_TO = '2027-01-10';   // next due dates in here get flagged at checkout to be moved
 const vLabel = (c, v) => v ? v.label : (c.vehicle || 'First vehicle');
 // customer search terms: name, mobile, email, rego/vehicle name (first vehicle and any extra vehicles), ignoring spaces in regos
 async function custSearchOr(q, withEmail) {
@@ -674,7 +684,7 @@ function renderLogin(msg) {
     <label class="label" for="pw">Password</label><input id="pw" type="password" autocomplete="current-password" required>
     <button class="btn brand" id="loginBtn">Log in</button>
     <div id="loginMsg" class="alert" hidden></div>
-    <div class="empty" style="font-size:.75rem;margin-top:10px">build 2026-11-17 01:08 UTC</div></form>`;
+    <div class="empty" style="font-size:.75rem;margin-top:10px">build 2026-11-17 01:38 UTC</div></form>`;
   const btn = $('loginBtn'), box = $('loginMsg');
   const fail = m => { btn.disabled = false; btn.textContent = 'Log in'; box.textContent = m; box.hidden = false; };
   $('loginForm').onsubmit = async e => {
@@ -710,6 +720,9 @@ async function loadBookings(noLock) {
   const vids = [...new Set(data.map(b => b.vehicle_id).filter(Boolean))]; let vehs = [];
   if (vids.length) { const r = await db.from('customer_vehicles').select('*').in('id', vids); vehs = r.data || []; }
   data.forEach(b => b.vehicle = vehs.find(v => v.id === b.vehicle_id) || null);
+  const ocids = [...new Set(data.map(b => b.customer_id))]; let ovs = [];
+  if (ocids.length) { const r = await db.from('service_due_overrides').select('*').in('customer_id', ocids); ovs = r.data || []; }
+  data.forEach(b => { if (b.customer) b.customer.due_overrides = ovs.filter(o => o.customer_id === b.customer_id); });
   const cids = [...new Set(data.map(b => b.customer_id))]; let bills = [];
   if (cids.length) { const r = await db.from('bills').select('id,customer_id,booking_id,description,amount_cents,status,sent_via,created_at').in('customer_id', cids).neq('status', 'cancelled'); bills = r.data || []; }
   data.forEach(b => { b.bill = bills.find(x => x.booking_id === b.id); b.owing = bills.filter(x => x.customer_id === b.customer_id && x.status === 'sent' && x.booking_id !== b.id); });
@@ -781,7 +794,7 @@ function renderRun() {
          <td class="d-only">${esc(SVC(b.service_id).name)}</td><td class="t d-only">${money(b.price_cents/100)}</td><td><span class="pill p-${pill[0]}">${pill[1]}</span></td></tr>`;
      };
      const times = slotTimes(sess);
-     return `<div class="session"><div class="s-head"><h3>${esc(LOC(s.location_id))} <span class="t" style="font-size:.9rem;color:var(--muted)">${fmtTime(s.start_min)}–${fmtTime(s.end_min)}</span></h3>
+     return `<div class="session"><div class="s-head"><h3>${esc(LOC(s.location_id))} <span class="t" style="font-size:.9rem;color:var(--muted)">${fmtTime(s.start_min)}–${fmtTime(s.end_min)}</span>${s.request_only ? ' <span class="pill p-pencilled">Request only</span>' : ''}${s.fill_backwards ? ' <span class="empty" style="font-size:.8rem">books from the last slot back</span>' : ''}</h3>
        <span class="empty">${bs.length} of ${times.length} booked${rs.length?` · ${rs.length} removal${rs.length>1?'s':''}`:''} · taken ${money(taken)}</span></div>
        ${(s.notes||[]).length?`<div class="alert" style="background:var(--warn-soft);color:var(--ink)">${esc(s.notes.join('; '))}</div>`:''}
        <div class="meter"><i style="width:${Math.round(bs.length/times.length*100)}%"></i></div>
@@ -807,6 +820,31 @@ function renderRun() {
 // ---------- bills the customer can pay online (Stripe) ----------
 const NO_SHOW_FEE = 40;
 const billDay = t => new Date(t).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', timeZone: 'Pacific/Auckland' });
+// After this visit: when the next service is due. Matt can move that one month (e.g. over Christmas).
+function nextDueBox(b, ev) {
+  if (b.kind !== 'service' || SVC(b.service_id).group !== 'service') return '';
+  const w0 = serviceWindow(ev, b.session_date), nx = w0 ? serviceWindow(ev, addDays(w0.closes, 1)) : null;
+  if (!nx) return '';
+  const xmas = nx.normalDue >= XMAS_FROM && nx.normalDue <= XMAS_TO && !nx.moved;
+  return `<div class="alert" id="ndBox" style="background:${xmas ? 'var(--bad-soft)' : 'var(--bg)'};color:var(--ink)">
+    <b>Next service due: <span style="color:var(--bad)">${yDate(nx.due)}</span></b>${nx.moved ? ` <span class="empty">(moved from ${yDate(nx.normalDue)})</span>` : ''}
+    ${xmas ? '<br><b style="color:var(--bad)">This falls over Christmas. Pick a new date for this one month.</b>' : ''}
+    <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;align-items:center"><input type="date" id="ndDate" value="${nx.due}" style="flex:1;min-width:140px">
+      <button class="btn ${xmas ? 'brand' : 'ghost'}" id="ndSet" data-normal="${nx.normalDue}">Set next service date</button>
+      ${nx.moved ? `<button class="chip" id="ndUndo" data-normal="${nx.normalDue}">Back to ${yDate(nx.normalDue)}</button>` : ''}</div>
+    <div class="empty" style="margin-top:4px">Only this one month moves. Reminders follow the new date.</div></div>`;
+}
+async function setNextDue(b, normal, due) {
+  const vid = b.vehicle_id || null;
+  let del = db.from('service_due_overrides').delete().eq('customer_id', b.customer_id).eq('normal_due', normal);
+  del = vid ? del.eq('vehicle_id', vid) : del.is('vehicle_id', null);
+  const { error: e1 } = await del; if (e1) return toast(errMsg(e1), true);
+  if (due && due !== normal) {
+    const { error } = await db.from('service_due_overrides').insert({ customer_id: b.customer_id, vehicle_id: vid, normal_due: normal, due });
+    if (error) return toast(errMsg(error), true);
+  }
+  toast(due && due !== normal ? 'Next service moved to ' + yDate(due) : 'Next service back to ' + yDate(normal)); await loadBookings(); renderRun();
+}
 function billBox(b, paid) {
   const via = x => x.sent_via === 'sms' ? 'text' : 'email';
   let h = (b.owing || []).map(x => `<div class="alert" style="background:var(--warn-soft);color:var(--ink)">Owes ${money(x.amount_cents / 100)} — ${esc(x.description)}. Bill sent ${billDay(x.created_at)}, not paid yet.
@@ -860,6 +898,7 @@ function renderSide() {
       <div class="fact"><div class="label">Theft protection</div><div class="v">${ev.theftProtection ? 'Yes' : 'No'}</div></div>
       <div class="fact"><div class="label">Apply date</div><div class="v">${yDate(d.exitEligible)}${c.apply_date_set_by==='customer'?'<br><span class="flag" style="color:var(--warn)">NZTA date, set by customer</span>':''}</div></div></div>
     ${flag ? `<div class="alert">⚑ ${esc(flag)}</div>` : ''}
+    ${nextDueBox(b, ev)}
     ${billBox(b, paid)}
     ${fl && !b.approved_at ? `<div class="alert" style="background:var(--warn-soft);color:var(--ink)">Placeholder only — no time is held. It moves later if a service books that time.</div>
       <div class="grid2"><button class="btn brand" id="apRem">Approve removal</button><button class="btn ghost" data-st="cancelled">Decline</button></div>` : ''}
@@ -913,6 +952,8 @@ function renderSide() {
     toast('Time locked in — services now book around it'); await loadBookings(true); renderRun();
   };
   el.querySelectorAll('[data-pay]').forEach(x => x.onclick = () => takePayment(b, x.dataset.pay, total));
+  if ($('ndSet')) $('ndSet').onclick = () => { const v = $('ndDate').value; if (!v) return toast('Pick a date', true); setNextDue(b, $('ndSet').dataset.normal, v); };
+  if ($('ndUndo')) $('ndUndo').onclick = () => setNextDue(b, $('ndUndo').dataset.normal, null);
   const up = $('undoPay'); if (up) up.onclick = () => {
     $('undoBox').innerHTML = `<div class="alert">Cancel this ${money(b.payments.reduce((a,p)=>a+p.amount_cents,0)/100)} sale? Refund any card payment on the terminal yourself.</div>
       <div class="grid2"><button class="btn" id="undoYes">Yes, cancel sale</button><button class="btn ghost" id="undoNo">Keep it</button></div>`;
@@ -1320,6 +1361,7 @@ function editCustomer(c, target = 'cside', after = renderCustomers) {
 async function loadVehicles(c) {
   const box = $('vehBox'); if (!box) return;
   const { data, error } = await db.from('customer_vehicles').select('*').eq('customer_id', c.id).is('removed_at', null).order('created_at');
+  const ov = await db.from('service_due_overrides').select('*').eq('customer_id', c.id); c.due_overrides = ov.data || [];
   if (error) { box.innerHTML = `<div class="alert">${esc(errMsg(error))}</div>`; return; }
   const due = v => (w => w ? yDate(w.due) : '—')(serviceWindow(engV(c, v), nzToday()));
   const form = (v, i) => `<form class="form" data-vf="${i}" style="margin-top:8px;padding:8px;border:1px solid var(--line);border-radius:8px">
