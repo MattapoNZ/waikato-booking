@@ -338,16 +338,23 @@ function customerDates(c, today) {
 // The rollover date is the install date unless it was changed (e.g. a second device was fitted later).
 // `servicedDates` = days a MONTHLY SERVICE was actually done and charged (not a violation reset or a
 // data reading). A window that already has one is finished, so the next month's window is returned.
+// A service up to 20 days before the due date counts for that month (an early visit; the previous
+// month's window has closed by then).
+// `c.dueOverrides` = [{ normal_due, due }]: Matt moved that one month's due date (e.g. over Christmas).
+// The month after goes back to the normal day.
+const EARLY_SERVICE_DAYS = 20;
 function serviceWindow(c, onOrAfter, servicedDates = []) {
   const anchor = c.rolloverDate || c.installDate;
   if (!anchor) return null;
   for (let i = 0; i < 600; i++) {
-    const due = addMonths(anchor, i);
+    const normalDue = addMonths(anchor, i);
     if (i === 0 && !c.rolloverDate) continue;   // install day itself is not a service
+    const ov = (c.dueOverrides || []).find(o => o.normal_due === normalDue);
+    const due = ov ? ov.due : normalDue;
     const opens = addDays(due, -7), closes = addDays(due, 7);
     if (closes < onOrAfter) continue;
-    if (servicedDates.some(d => d >= opens && d <= closes)) continue;   // this month's service is done
-    return { due, opens, closes };
+    if (servicedDates.some(d => d >= addDays(due, -EARLY_SERVICE_DAYS) && d <= closes)) continue;   // this month's service is done
+    return { due, normalDue, moved: !!ov, opens, closes };
   }
   return null;
 }
@@ -545,14 +552,18 @@ const nzPhone = v => { const d = String(v).replace(/\D/g, '').replace(/^(64|0)/,
 // ---------- state ----------
 const S = { tab: 'home', me: null, user: null, bookings: [], avail: [], rAvail: [], rTimes: [], requests: [], svc: null, loc: 'all', confirm: null, rPick: null };
 const eng = () => ({ id: S.me.id, installDate: S.me.install_date, rolloverDate: S.me.rollover_date, subsidised: S.me.subsidised, subsidyStart: S.me.subsidy_start, subsidyMonths: S.me.subsidy_months ?? 15,
-  theftProtection: S.me.theft_protection, applyDate: S.me.apply_date, applyDateSetBy: S.me.apply_date_set_by, blockedServiceIds: S.me.blocked || [] });
+  theftProtection: S.me.theft_protection, applyDate: S.me.apply_date, applyDateSetBy: S.me.apply_date_set_by, blockedServiceIds: S.me.blocked || [],
+  dueOverrides: (S.me.due_overrides || []).filter(o => !o.vehicle_id) });
 // extra vehicles: the customer record is their first vehicle; S.me.vehicles holds any others (own dates and price, same apply date)
 const multi = () => (S.me.vehicles || []).length > 0;
 const VEH = () => [null, ...(S.me.vehicles || [])];
 const vName = v => v ? v.label : (S.me.vehicle || 'Your first vehicle');
 const vById = id => (S.me.vehicles || []).find(v => v.id === id) || null;
 const engV = v => !v ? eng() : { ...eng(), installDate: v.install_date, rolloverDate: v.rollover_date, subsidised: v.subsidised, subsidyStart: null,
-  theftProtection: v.theft_protection, applyDate: customerDates(eng(), null).exitEligible };
+  theftProtection: v.theft_protection, applyDate: customerDates(eng(), null).exitEligible,
+  dueOverrides: (S.me.due_overrides || []).filter(o => o.vehicle_id === v.id) };
+// shown on Home until the date passes
+const NOTICES = [{ until: '2027-01-26', html: '<b>School holiday hours, 22 December to 26 January.</b> Morrinsville moves to Tuesday mornings, and Cambridge on Tuesdays starts a little later. Between Christmas and New Year there is one day, Wednesday 30 December, by request only. Check the time when you book.' }];
 const vBookings = v => S.bookings.filter(b => (b.vehicle_id || '') === (v ? v.id : ''));
 // vid: undefined = any vehicle; '' = first vehicle; otherwise that vehicle
 const live = (k, data = false, vid) => S.bookings.find(b => b.kind === k && (b.service_id === 'data') === data && ['pencilled','confirmed'].includes(b.status) && b.session_date >= nzToday()
@@ -862,6 +873,7 @@ function viewHome() {
     ${(S.me.bills || []).map(x => `<div class="card"><h2>Bill to pay: ${money(x.amount_cents / 100)}</h2><p>${esc(x.description)}</p>
       <a class="btn brand" href="?pay=${encodeURIComponent(x.token)}" style="display:block;text-align:center;text-decoration:none">Pay online by card</a>
       <p class="muted" style="margin-top:8px">Or pay by EFTPOS or cash at your next visit.</p></div>`).join('')}
+    ${NOTICES.filter(n => today <= n.until).map(n => `<div class="note">${n.html}</div>`).join('')}
     ${exitCard(d, today, w)}
     ${VEH().map(v => { const vid = v ? v.id : '', s = live('service', false, multi() ? vid : undefined);
       const wv = serviceWindow(engV(v), today, servicedDates(multi() ? vBookings(v) : S.bookings, services));
@@ -907,7 +919,7 @@ function viewBook() {
       <p class="muted">${WHY[S.svc] || 'Only book a reset by itself if you are not due a service.'}</p></div>
     <div class="card"><h2>Where and when</h2><div class="chips"><button class="chip" aria-pressed="${S.loc==='all'}" data-loc="all">All</button>${locs.map(l => `<button class="chip" aria-pressed="${S.loc===l}" data-loc="${l}">${esc(LOC(l).name)}</button>`).join('')}</div>
       <p class="muted">Each day has one time: the next free spot.</p><div id="rows">${rows.map((r, i) => { const s = svcFor(r.session_date);
-        return `<div class="slot"><span><b>${shortDate(r.session_date)} · <span class="t">${fmtTime(r.offered_min)}</span></b><span class="muted">${esc(LOC(r.location_id).name)}${s ? ' · ' + money(s.price) : ''}${(r.notes||[]).length ? ' · ' + esc(r.notes.join('; ')) : ''}</span>${r.request ? '<span class="muted" style="color:var(--warn);display:block">Online bookings have closed for this session. You can request it.</span>' : ''}</span>
+        return `<div class="slot"><span><b>${shortDate(r.session_date)} · <span class="t">${fmtTime(r.offered_min)}</span></b><span class="muted">${esc(LOC(r.location_id).name)}${s ? ' · ' + money(s.price) : ''}${(r.notes||[]).length ? ' · ' + esc(r.notes.join('; ')) : ''}</span>${r.request ? `<span class="muted" style="color:var(--warn);display:block">${r.request_only ? 'This day is by request only. Matt confirms it.' : 'Online bookings have closed for this session. You can request it.'}</span>` : ''}</span>
           <button class="btn sm${r.request ? ' ghost' : ''}" data-pick="${i}">${r.request ? 'Request' : 'Book'}</button></div>`; }).join('') || `<p>No times free in the next 3 weeks. Text Matt on ${MATT}.</p>`}</div></div><div id="conf"></div>`;
   document.querySelectorAll('[data-svc]').forEach(b => b.onclick = () => { S.svc = b.dataset.svc; viewBook(); });
   document.querySelectorAll('[data-loc]').forEach(b => b.onclick = () => { S.loc = b.dataset.loc; viewBook(); });
@@ -925,8 +937,8 @@ function confirmBook(r, svcFor) {
   const dataNote = s.id !== 'data' ? '' : `<div class="note"><b>Are you sure this is what you want?</b> This is a data reading only. It is not your monthly service, and you still need your service when it is due.
     ${inWin && !live('service') ? `<br><b>Your monthly service is due around ${shortDate(w.due)}</b>, and a full service includes the data reading. <button class="btn brand" id="fullSvc">Book my monthly service instead</button>` : ''}</div>`;
   if (r.request) {
-    $('conf').innerHTML = `<div class="card" id="confCard" style="border:2px solid var(--warn)"><h2>Bookings for this session have closed</h2>
-      <p>Online bookings close 2 hours before. Did you want to request this time instead?</p>
+    $('conf').innerHTML = `<div class="card" id="confCard" style="border:2px solid var(--warn)"><h2>${r.request_only ? 'This day is by request only' : 'Bookings for this session have closed'}</h2>
+      <p>${r.request_only ? 'Did you want to request this time? Matt will confirm it, or offer another time.' : 'Online bookings close 2 hours before. Did you want to request this time instead?'}</p>
       <div class="big">${longDate(r.session_date)}</div><div class="big t" style="color:var(--brand)">${fmtTime(r.offered_min)}</div>
       <p><b>${esc(l.name)}</b><br>${mapLink(l)}</p><p>${esc(s.name)} · <b>${money(s.price)}</b> <span class="muted">to pay on the day</span></p>
       <div class="note"><b>A request is not a booking.</b> Matt gets it straight away. Please do not come until he confirms it. We will email you either way.</div>
@@ -1060,7 +1072,7 @@ function viewMe() {
       <details style="margin-top:10px"><summary class="muted">NZTA gave me an actual date to apply instead</summary>
       <form id="adF"><label class="f" for="ad">Date you can next apply</label><input id="ad" type="date" value="${esc(S.me.apply_date || '')}"><div id="adErr" class="note bad" hidden></div><button class="btn">Save date</button></form></details></div>
     <div class="card"><h2>Keep this handy</h2><p class="muted">In your browser menu choose <b>Add to Home screen</b> to open this like an app.</p><button class="btn ghost" id="out">Sign out</button><p class="muted" style="text-align:center"><a href="../privacy/">Privacy policy</a></p></div>
-    <p class="muted" style="text-align:center;font-size:.75rem">build 2026-11-17 01:08 UTC</p>`;
+    <p class="muted" style="text-align:center;font-size:.75rem">build 2026-11-17 01:38 UTC</p>`;
   $('out').onclick = signOut;
   if ($('prF')) $('prF').onsubmit = async ev => {
     ev.preventDefault();
