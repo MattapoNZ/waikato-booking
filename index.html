@@ -607,6 +607,24 @@ const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} };
 // DB row -> engine customer shape
 const eng = c => ({ id: c.id, installDate: c.install_date, rolloverDate: c.rollover_date, subsidised: c.subsidised, subsidyStart: c.subsidy_start, theftProtection: c.theft_protection,
                     applyDate: c.apply_date, applyDateSetBy: c.apply_date_set_by, alerts: c.alerts });
+// the same customer, seen through one of their extra vehicles: that vehicle's dates and price, the customer's apply date
+const engV = (c, v) => !v ? eng(c) : { ...eng(c), installDate: v.install_date, rolloverDate: v.rollover_date, subsidised: v.subsidised, subsidyStart: null,
+  theftProtection: v.theft_protection, applyDate: customerDates(eng(c), null).exitEligible };
+const vLabel = (c, v) => v ? v.label : (c.vehicle || 'First vehicle');
+// customer search terms: name, mobile, email, rego/vehicle name (first vehicle and any extra vehicles), ignoring spaces in regos
+async function custSearchOr(q, withEmail) {
+  q = q.replace(/[,()%*]/g, ' ').trim(); const ns = q.replace(/\s+/g, '');
+  const pats = [...new Set([q, ns].filter(x => x.length >= 2))];
+  const terms = ['first_name', 'last_name', 'mobile', ...(withEmail ? ['email'] : [])].map(f => `${f}.ilike.%${q}%`);
+  pats.forEach(x => terms.push(`vehicle.ilike.%${x}%`));
+  const ids = new Set();
+  for (const x of pats) {
+    const r = await db.from('customer_vehicles').select('customer_id').ilike('label', `%${x}%`).is('removed_at', null).limit(50);
+    (r.data || []).forEach(v => ids.add(v.customer_id));
+  }
+  if (ids.size) terms.push(`id.in.(${[...ids].join(',')})`);
+  return terms.join(',');
+}
 let toastT;
 function toast(msg, bad) { const t = $('toast'); t.textContent = msg; t.className = 'toast' + (bad ? ' bad' : ''); t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, 4000); }
 const errMsg = e => (e && (e.message || e.error_description)) || String(e);
@@ -656,7 +674,7 @@ function renderLogin(msg) {
     <label class="label" for="pw">Password</label><input id="pw" type="password" autocomplete="current-password" required>
     <button class="btn brand" id="loginBtn">Log in</button>
     <div id="loginMsg" class="alert" hidden></div>
-    <div class="empty" style="font-size:.75rem;margin-top:10px">build 2026-11-17 00:58 UTC</div></form>`;
+    <div class="empty" style="font-size:.75rem;margin-top:10px">build 2026-11-17 01:08 UTC</div></form>`;
   const btn = $('loginBtn'), box = $('loginMsg');
   const fail = m => { btn.disabled = false; btn.textContent = 'Log in'; box.textContent = m; box.hidden = false; };
   $('loginForm').onsubmit = async e => {
@@ -689,6 +707,9 @@ async function loadBookings(noLock) {
   let pays = [];
   if (ids.length) { const r = await db.from('payments').select('*').in('booking_id', ids); pays = r.data || []; }
   data.forEach(b => b.payments = pays.filter(p => p.booking_id === b.id));
+  const vids = [...new Set(data.map(b => b.vehicle_id).filter(Boolean))]; let vehs = [];
+  if (vids.length) { const r = await db.from('customer_vehicles').select('*').in('id', vids); vehs = r.data || []; }
+  data.forEach(b => b.vehicle = vehs.find(v => v.id === b.vehicle_id) || null);
   const cids = [...new Set(data.map(b => b.customer_id))]; let bills = [];
   if (cids.length) { const r = await db.from('bills').select('id,customer_id,booking_id,description,amount_cents,status,sent_via,created_at').in('customer_id', cids).neq('status', 'cancelled'); bills = r.data || []; }
   data.forEach(b => { b.bill = bills.find(x => x.booking_id === b.id); b.owing = bills.filter(x => x.customer_id === b.customer_id && x.status === 'sent' && x.booking_id !== b.id); });
@@ -728,7 +749,7 @@ function profileFlag0(c, b) {
     const z = b.details?.zeroAlcoholLicencePhoto;
     return !z ? 'No zero alcohol licence photo yet' : z === 'seen in person by staff' ? 'Zero alcohol licence seen by staff' : 'Zero alcohol licence photo attached — check before removing';
   }
-  const e = eng(c), allowed = allowedServices(e, services, b.session_date);
+  const e = engV(c, b.vehicle), allowed = allowedServices(e, services, b.session_date);
   if (!allowed.some(s => s.id === b.service_id) && SVC(b.service_id).group === 'service') {
     const should = allowed.find(s => s.group === 'service');
     return should ? `Booked ${SVC(b.service_id).name} — should now be ${should.name} ${money(should.price)}` : '';
@@ -756,7 +777,7 @@ function renderRun() {
        const pill = fl ? (b.approved_at ? ['pencilled', 'Approved · time not locked'] : ['pencilled', 'Needs approval'])
          : b.kind === 'service' && b.status === 'pencilled' ? ['pencilled', 'Request · confirm?'] : [b.status, STATUS[b.status] || b.status];
        return `<tr class="row ${b.id===S.sel?'sel':''}" data-b="${b.id}"><td class="t">${fl ? '≈ ' + fmtTime(rTime(b)) : fmtTime(b.start_min)}</td>
-         <td><b>${esc(fullName(c))}</b><span class="m-only empty">Installed ${yDate(c.install_date)} · ${esc(SVC(b.service_id).name)} · ${money(b.price_cents/100)}</span>${flag?`<span class="flag" style="display:block">⚑ ${esc(flag)}</span>`:''}</td><td class="t d-only">${yDate(c.install_date)}</td>
+         <td><b>${esc(fullName(c))}</b>${b.vehicle ? ` <span class="empty">· ${esc(b.vehicle.label)}</span>` : ''}<span class="m-only empty">Installed ${yDate(b.vehicle ? b.vehicle.install_date : c.install_date)} · ${esc(SVC(b.service_id).name)} · ${money(b.price_cents/100)}</span>${flag?`<span class="flag" style="display:block">⚑ ${esc(flag)}</span>`:''}</td><td class="t d-only">${yDate(b.vehicle ? b.vehicle.install_date : c.install_date)}</td>
          <td class="d-only">${esc(SVC(b.service_id).name)}</td><td class="t d-only">${money(b.price_cents/100)}</td><td><span class="pill p-${pill[0]}">${pill[1]}</span></td></tr>`;
      };
      const times = slotTimes(sess);
@@ -823,19 +844,20 @@ function renderSide() {
       $('iqOut').innerHTML = q.lines.map(l => `<div class="co-line"><span>${esc(l.name)}</span><span class="t">${money(l.price)}</span></div>`).join('') + `<div class="co-total"><span>Total</span><span class="t">${money(q.total)}</span></div>`; };
     ['iqCx','iqSub','iqTp'].forEach(id => $(id).onchange = calc); calc(); return;
   }
-  const c = b.customer || {}, d = customerDates(eng(c), b.session_date), paid = b.payments.length > 0;
+  const c = b.customer || {}, d = customerDates(eng(c), b.session_date), ev = engV(c, b.vehicle), dv = customerDates(ev, b.session_date), paid = b.payments.length > 0;
   const total = Math.round((b.price_cents / 100 + S.extras.reduce((a, x) => a + xPrice(x), 0)) * 100) / 100;
   const flag = profileFlag(c, b);
   const fl = floating(b), sRow = S.sessions.find(x => x.session_date === b.session_date && x.location_id === b.location_id);
   const when = fl ? '≈ ' + fmtTime((sRow && estFor(sRow).get(b.id)) ?? b.start_min) : fmtTime(b.start_min);
   el.innerHTML = `<div class="label">${esc(LOC(b.location_id))} · ${longDate(b.session_date)} · <span class="t">${when}</span></div>
     <h2 style="font-size:1.5rem;cursor:pointer" id="edN" title="Open customer details">${esc(fullName(c))} <span style="font-size:1rem;color:var(--brand)">✎</span></h2><div class="empty">${esc(c.mobile || '')}</div>
+    ${b.vehicle || c.vehicle ? `<div style="font-weight:700;margin-top:4px">Vehicle: ${esc(vLabel(c, b.vehicle))}</div>` : ''}
     <div style="margin:8px 0"><button class="btn ghost" id="edC" style="width:100%">Open and edit customer details</button></div>
     ${priceReqBox(c)}
-    <div class="facts"><div class="fact"><div class="label">Installed</div><div class="v">${yDate(c.install_date)}</div></div>
-      <div class="fact"><div class="label" style="color:var(--bad)">Service date</div><div class="v" style="color:var(--bad)">${(w => w ? yDate(w.due) : '—')(serviceWindow(eng(c), b.session_date))}</div></div>
-      <div class="fact"><div class="label">Subsidy</div><div class="v">${d.subsidyActive ? (d.subsidyOverdue ? 'Active<br><span class="flag" style="color:var(--warn)">15 months passed ' + yDate(d.subsidyEnds) + ' — on until Dräger emails</span>' : d.subsidyEnds ? 'Until ' + yDate(d.subsidyEnds) : 'Active') : 'None'}</div></div>
-      <div class="fact"><div class="label">Theft protection</div><div class="v">${c.theft_protection ? 'Yes' : 'No'}</div></div>
+    <div class="facts"><div class="fact"><div class="label">Installed</div><div class="v">${yDate(ev.installDate)}</div></div>
+      <div class="fact"><div class="label" style="color:var(--bad)">Service date</div><div class="v" style="color:var(--bad)">${(w => w ? yDate(w.due) : '—')(serviceWindow(ev, b.session_date))}</div></div>
+      <div class="fact"><div class="label">Subsidy</div><div class="v">${dv.subsidyActive ? (dv.subsidyOverdue ? 'Active<br><span class="flag" style="color:var(--warn)">15 months passed ' + yDate(dv.subsidyEnds) + ' — on until Dräger emails</span>' : dv.subsidyEnds ? 'Until ' + yDate(dv.subsidyEnds) : 'Active') : 'None'}</div></div>
+      <div class="fact"><div class="label">Theft protection</div><div class="v">${ev.theftProtection ? 'Yes' : 'No'}</div></div>
       <div class="fact"><div class="label">Apply date</div><div class="v">${yDate(d.exitEligible)}${c.apply_date_set_by==='customer'?'<br><span class="flag" style="color:var(--warn)">NZTA date, set by customer</span>':''}</div></div></div>
     ${flag ? `<div class="alert">⚑ ${esc(flag)}</div>` : ''}
     ${billBox(b, paid)}
@@ -1036,21 +1058,27 @@ async function renderAddBooking(locId, walkin = false) {
   };
   const search = async () => {
     const q = $('abQ').value.trim(); if (q.length < 2) { $('abList').innerHTML = ''; return; }
-    const like = `%${q}%`;
-    const { data } = await db.from('customers').select('*').or(`first_name.ilike.${like},last_name.ilike.${like},mobile.ilike.${like}`).limit(8);
-    $('abList').innerHTML = (data||[]).map(c => `<div class="item" data-c="${c.id}"><span><b>${esc(fullName(c))}</b><br><span class="empty">${esc(c.mobile||'')}</span></span><span class="empty">Installed ${yDate(c.install_date)}</span></div>`).join('') || '<div class="empty">No match</div>';
+    const { data } = await db.from('customers').select('*').or(await custSearchOr(q, false)).limit(8);
+    $('abList').innerHTML = (data||[]).map(c => `<div class="item" data-c="${c.id}"><span><b>${esc(fullName(c))}</b><br><span class="empty">${esc(c.mobile||'')}${c.vehicle ? ' · ' + esc(c.vehicle) : ''}</span></span><span class="empty">Installed ${yDate(c.install_date)}</span></div>`).join('') || '<div class="empty">No match</div>';
     $('abList').querySelectorAll('[data-c]').forEach(it => it.onclick = () => pick(data.find(c => c.id === it.dataset.c)));
   };
   let t; $('abQ').oninput = () => { clearTimeout(t); t = setTimeout(search, 250); }; $('abQ').focus();
-  function pick(c) {
-    let opts = allowedServices(eng(c), services, S.date).filter(s => s.group !== 'changeover');
+  function pick(c, selV = null) {
+    if (c._veh === undefined) {
+      db.from('customer_vehicles').select('*').eq('customer_id', c.id).is('removed_at', null).order('created_at')
+        .then(r => { c._veh = r.data || []; pick(c, selV); });
+      return;
+    }
+    let opts = allowedServices(engV(c, selV), services, S.date).filter(s => s.group !== 'changeover');
     if (walkin) opts = opts.filter(s => s.group !== 'removal');
     $('abList').innerHTML = '';
-    $('abPick').innerHTML = `<div style="margin-top:10px"><b>${esc(fullName(c))}</b> · installed ${yDate(c.install_date)}</div>
+    $('abPick').innerHTML = `<div style="margin-top:10px"><b>${esc(fullName(c))}</b> · installed ${yDate(selV ? selV.install_date : c.install_date)}</div>
+      ${c._veh.length ? `<div class="label" style="margin-top:8px">Which vehicle?</div><div style="display:flex;gap:6px;flex-wrap:wrap">${[null, ...c._veh].map(v => `<button class="chip" data-vx="${v ? v.id : ''}" aria-pressed="${(selV ? selV.id : '') === (v ? v.id : '')}">${esc(vLabel(c, v))}</button>`).join('')}</div>` : ''}
       <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px">${opts.map(s => `<button class="btn ghost" style="text-align:left" data-s="${s.id}">${esc(s.name)} · ${money(s.price)}${s.note?`<br><span class="empty">${esc(s.note)}</span>`:''}</button>`).join('')}</div>
       <div id="remExtra"></div>`;
+    $('abPick').querySelectorAll('[data-vx]').forEach(x => x.onclick = () => pick(c, c._veh.find(v => v.id === x.dataset.vx) || null));
     $('abPick').querySelectorAll('[data-s]').forEach(btn => btn.onclick = async () => {
-      let details = {};
+      let details = selV ? { vehicle_id: selV.id } : {};
       if (btn.dataset.s === 'rem') {
         const req = removalRequirements(eng(c), S.date);
         if (!$('remRef')) {
@@ -1058,30 +1086,30 @@ async function renderAddBooking(locId, walkin = false) {
             ? `<label class="label" for="remRef" style="margin-top:8px;display:block">NZTA temporary removal approval number</label><input id="remRef" style="width:100%"><button class="btn" id="remGo" style="margin-top:6px">Book removal</button>`
             : `<label class="label" style="margin-top:8px;display:flex;gap:6px;align-items:center"><input type="checkbox" id="remRef"> I've seen their zero alcohol licence</label><button class="btn" id="remGo" style="margin-top:6px">Book removal</button>`;
           $('remGo').onclick = () => {
-            details = req.temporary ? { nztaApprovalRef: $('remRef').value.trim() } : ($('remRef').checked ? { zeroAlcoholLicencePhoto: 'seen in person by staff' } : {});
-            doBook(c, 'rem', details);
+            details = { ...details, ...(req.temporary ? { nztaApprovalRef: $('remRef').value.trim() } : ($('remRef').checked ? { zeroAlcoholLicencePhoto: 'seen in person by staff' } : {})) };
+            doBook(c, 'rem', details, selV);
           };
           return;
         }
       }
-      doBook(c, btn.dataset.s, details);
+      doBook(c, btn.dataset.s, details, selV);
     });
   }
-  async function doBook(c, svc, details) {
-    if (walkin) return doWalkin(c, svc);
+  async function doBook(c, svc, details, selV) {
+    if (walkin) return doWalkin(c, svc, selV);
     const { data, error } = await db.rpc('book_next_slot', { p_location: locId, p_date: S.date, p_service: svc, p_details: details, p_customer: c.id });
     if (error) return toast(errMsg(error), true);
     toast(`Booked ${fullName(c)} at ${fmtTime(data.start_min)}`); S.sel = data.id; await loadBookings(); renderRun();
   }
   // Walk-in: recorded at the current time (off the 5-min grid), already arrived, straight to checkout.
-  async function doWalkin(c, svcId) {
-    const svc = allowedServices(eng(c), services, S.date).find(s => s.id === svcId) || SVC(svcId);
+  async function doWalkin(c, svcId, selV) {
+    const svc = allowedServices(engV(c, selV), services, S.date).find(s => s.id === svcId) || SVC(svcId);
     const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Pacific/Auckland' }));
     const sess = S.sessions.find(x => x.location_id === locId && x.session_date === S.date);
     let t = S.date === nzToday() ? now.getHours() * 60 + now.getMinutes() : (sess ? sess.end_min : 720);
     const used = new Set(S.bookings.filter(b => b.location_id === locId).map(b => b.start_min));
     while (used.has(t)) t++;
-    const rowW = { customer_id: c.id, service_id: svc.id, location_id: locId, session_date: S.date, start_min: t,
+    const rowW = { vehicle_id: selV ? selV.id : null, customer_id: c.id, service_id: svc.id, location_id: locId, session_date: S.date, start_min: t,
       duration_mins: svc.duration || 5, kind: 'service', status: 'arrived', source: 'walkin', price_cents: Math.round((svc.price || 0) * 100), details: {} };
     // a walk-in is on the sheet but holds no bookable slot
     let { data, error } = await db.from('bookings').insert({ ...rowW, time_locked: false }).select().single();
@@ -1152,7 +1180,7 @@ async function renderCustomers() {
     const q = $('cq').value.trim().replace(/[,()%]/g, ' '); S.custQ = q;
     await loadPriceReqs();
     let req = db.from('customers').select('*').order('first_name').limit(S.custFilter === 'quiet' ? 1000 : 100);
-    if (q.length >= 2) req = req.or(`first_name.ilike.%${q}%,last_name.ilike.%${q}%,mobile.ilike.%${q}%,email.ilike.%${q}%,vehicle.ilike.%${q}%`);
+    if (q.length >= 2) req = req.or(await custSearchOr(q, true));
     if (S.custFilter === 'attention') { const ids = S.priceReqs.map(r => r.customer_id); req = req.or('self_registered.eq.true' + (ids.length ? `,id.in.(${ids.join(',')})` : '')); }
     let { data, error } = await req; if (error) return toast(errMsg(error), true);
     if (S.custFilter === 'quiet') {
@@ -1226,7 +1254,7 @@ function editCustomer(c, target = 'cside', after = renderCustomers) {
     <form class="form" id="cf" style="margin-top:10px">
       <label>First name<input id="f_first" value="${esc(c.first_name)}"></label><label>Last name<input id="f_last" value="${esc(c.last_name)}"></label>
       <label>Mobile<input id="f_mob" value="${esc(c.mobile)}"></label><label>Email<input id="f_em" value="${esc(c.email)}"></label>
-      <label>Install date<input id="f_inst" type="date" value="${esc(c.install_date)}"></label><label>Vehicle<input id="f_veh" value="${esc(c.vehicle)}"></label>
+      <label>Install date<input id="f_inst" type="date" value="${esc(c.install_date)}"></label><label>Vehicle (rego or name)<input id="f_veh" value="${esc(c.vehicle)}" maxlength="40"></label>
       <label style="flex-direction:row;align-items:center;gap:6px"><input type="checkbox" id="f_sub" ${c.subsidised?'checked':''}> Subsidised</label>
       <label style="flex-direction:row;align-items:center;gap:6px"><input type="checkbox" id="f_tp" ${c.theft_protection?'checked':''}> Theft protection</label>
       <label>Subsidy start (date on the NZTA letter, if not the install date)<input id="f_ss" type="date" value="${esc(c.subsidy_start)}"></label>
@@ -1236,7 +1264,9 @@ function editCustomer(c, target = 'cside', after = renderCustomers) {
       <label class="full">Alert (shows in red at checkout)<input id="f_al" value="${esc(c.alerts)}"></label>
       <label class="full">Notes<textarea id="f_no" rows="3">${esc(c.notes)}</textarea></label>
       <div class="full empty">Apply date ${yDate(d.exitEligible)} · subsidy ${d.subsidyActive ? (d.subsidyOverdue ? 'ACTIVE, 15 months passed ' + yDate(d.subsidyEnds) + ' — untick Subsidised when Dräger emails' : d.subsidyEnds ? 'expected until ' + yDate(d.subsidyEnds) : 'active') : 'none'}<span id="nsd">${(w => w ? ' · next service due ' + yDate(w.due) : '')(serviceWindow(eng(c), nzToday()))}</span></div>
-      <div class="full"><button class="btn brand">Save</button></div></form>`;
+      <div class="full"><button class="btn brand">Save</button></div></form>
+    <div id="vehBox" style="margin-top:16px;border-top:1px solid var(--line);padding-top:10px"></div>`;
+  loadVehicles(c);
   if ($('edBack')) $('edBack').onclick = after;
   wirePriceReq(el, after);
   if ($('mkChecked')) $('mkChecked').onclick = async () => {
@@ -1282,6 +1312,47 @@ function editCustomer(c, target = 'cside', after = renderCustomers) {
       const { error } = await db.rpc('delete_customer', { p_customer: c.id });
       if (error) { $('delBox').innerHTML = `<div class="alert">${esc(errMsg(error))}</div>`; return; }
       toast('Customer deleted'); if (target === 'side') { S.sel = null; } after();
+    };
+  };
+}
+
+// ---------- extra vehicles (the customer record above is their first vehicle) ----------
+async function loadVehicles(c) {
+  const box = $('vehBox'); if (!box) return;
+  const { data, error } = await db.from('customer_vehicles').select('*').eq('customer_id', c.id).is('removed_at', null).order('created_at');
+  if (error) { box.innerHTML = `<div class="alert">${esc(errMsg(error))}</div>`; return; }
+  const due = v => (w => w ? yDate(w.due) : '—')(serviceWindow(engV(c, v), nzToday()));
+  const form = (v, i) => `<form class="form" data-vf="${i}" style="margin-top:8px;padding:8px;border:1px solid var(--line);border-radius:8px">
+      <label>Rego or name<input name="label" required maxlength="40" value="${esc(v ? v.label : '')}" placeholder="e.g. ABC123 or Work ute"></label>
+      <label>Install date (this vehicle)<input name="install_date" type="date" value="${esc(v ? v.install_date : '')}"></label>
+      <label class="full">Service date, if different from its install date<input name="rollover_date" type="date" value="${esc(v ? v.rollover_date : '')}"></label>
+      <label style="flex-direction:row;align-items:center;gap:6px"><input type="checkbox" name="subsidised" ${v && v.subsidised ? 'checked' : ''}> Subsidised</label>
+      <label style="flex-direction:row;align-items:center;gap:6px"><input type="checkbox" name="theft_protection" ${!v || v.theft_protection ? 'checked' : ''}> Theft protection</label>
+      ${v ? `<div class="full empty">Next service due <b style="color:var(--bad)">${due(v)}</b> · ${esc(SVC((v.subsidised ? 'sub' : 'svc') + (v.theft_protection ? '-tp' : '')).name)}</div>` : ''}
+      <div class="full" style="display:flex;gap:6px"><button class="btn brand">${v ? 'Save vehicle' : 'Add vehicle'}</button>${v ? `<button type="button" class="btn ghost" data-vrm="${i}">Remove vehicle</button>` : ''}</div></form>`;
+  box.innerHTML = `<h3 style="margin:0">Vehicles</h3>
+    <div class="empty">First vehicle: <b>${esc(c.vehicle || 'not named')}</b> (the details above) · next service due <b style="color:var(--bad)">${due(null)}</b>. The apply date is the same for all their vehicles.</div>
+    ${data.map((v, i) => form(v, i)).join('')}
+    <div id="vehNew"><button class="btn ghost" id="vehAdd" style="margin-top:8px">+ Add another vehicle</button></div>`;
+  const read = f => ({ label: f.label.value.trim(), install_date: f.install_date.value || null, rollover_date: f.rollover_date.value || null,
+                       subsidised: f.subsidised.checked, theft_protection: f.theft_protection.checked });
+  box.querySelectorAll('[data-vf]').forEach(f => f.onsubmit = async e => {
+    e.preventDefault(); const v = data[+f.dataset.vf];
+    const { error } = await db.from('customer_vehicles').update(read(f)).eq('id', v.id);
+    if (error) return toast(errMsg(error), true); toast('Vehicle saved'); loadVehicles(c);
+  });
+  box.querySelectorAll('[data-vrm]').forEach(x => x.onclick = async () => {
+    if (x.dataset.sure !== '1') { x.dataset.sure = '1'; x.textContent = 'Tap again to remove'; return; }
+    const { error } = await db.from('customer_vehicles').update({ removed_at: new Date().toISOString() }).eq('id', data[+x.dataset.vrm].id);
+    if (error) return toast(errMsg(error), true); toast('Vehicle removed'); loadVehicles(c);
+  });
+  $('vehAdd').onclick = () => {
+    $('vehNew').innerHTML = form(null, 'new');
+    const f = $('vehNew').querySelector('form'); f.label.focus();
+    f.onsubmit = async e => {
+      e.preventDefault();
+      const { error } = await db.from('customer_vehicles').insert({ customer_id: c.id, ...read(f) });
+      if (error) return toast(errMsg(error), true); toast('Vehicle added'); loadVehicles(c);
     };
   };
 }
