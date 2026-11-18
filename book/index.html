@@ -847,15 +847,16 @@ async function signOut() { await db.auth.signOut(); S.me = null; renderLogin(); 
 // ---------- data ----------
 async function load() {
   const today = nzToday();
-  const [me, bk, av, rav, rt, rq] = await withTimeout(Promise.all([
+  const [me, bk, av, rav, rt, rq, sd] = await withTimeout(Promise.all([
     db.rpc('my_profile'),
     db.from('bookings').select('*').gte('session_date', addDays(today, -60)).neq('status', 'cancelled').order('session_date'),
     db.rpc('my_availability', { p_kind: 'service' }),
     db.rpc('my_availability', { p_kind: 'removal' }),
     db.rpc('my_removal_times'),
-    db.from('service_requests').select('*').order('created_at', { ascending: false }).limit(3)]), 20000, 'Loading');
+    db.from('service_requests').select('*').order('created_at', { ascending: false }).limit(3),
+    db.rpc('my_sign_docs')]), 20000, 'Loading');
   const bad = [me, bk, av, rav, rt, rq].find(r => r.error); if (bad) throw bad.error;
-  S.me = me.data; S.bookings = bk.data; S.rTimes = rt.data || []; S.requests = rq.data || [];
+  S.me = me.data; S.signDocs = sd.error ? [] : (sd.data || []); S.bookings = bk.data; S.rTimes = rt.data || []; S.requests = rq.data || [];
   const byDay = (a, b) => (a.session_date + String(a.offered_min).padStart(4, '0')).localeCompare(b.session_date + String(b.offered_min).padStart(4, '0'));
   S.avail = (av.data || []).sort(byDay); S.rAvail = (rav.data || []).sort(byDay);
 }
@@ -1058,6 +1059,139 @@ function wireHomeScreen() {
   if ($('hsNo')) $('hsNo').onclick = () => { lsSet('hsHide', '1'); $('hsCard')?.remove(); };
 }
 
+// ---------- documents to sign ----------
+// Matt uploads a PDF on the run sheet; the customer reads it here and signs with a finger. The app stamps the
+// signature onto the "Participant Signature" line on page 1 and sends the signed PDF back to be emailed out.
+const PDFJS = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/legacy/build/pdf.min.js';
+const PDFJS_WORKER = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/legacy/build/pdf.worker.min.js';
+const PDFLIB = 'https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js';
+const SIG_FALLBACK = { x: 160, top: 571, bottom: 603, w: 185 };   // Dräger client agreement, A4, measured from the top of page 1
+function loadScript(src) {
+  return new Promise((ok, bad) => {
+    if (document.querySelector(`script[data-src="${src}"]`)) return ok();
+    const s = document.createElement('script'); s.src = src; s.dataset.src = src; s.onload = ok;
+    s.onerror = () => { s.remove(); bad(new Error('Could not load the document viewer. Check your internet and try again.')); };
+    document.head.appendChild(s);
+  });
+}
+function signCards() {
+  return (S.signDocs || []).map(d => `<div class="card" style="border:2px solid var(--brand)"><h2>Please sign: ${esc(d.title)}</h2>
+    <p>Matt has sent you a document to read and sign on your phone. It takes a minute.</p><button class="btn brand" data-sign="${d.id}">Read and sign</button></div>`).join('');
+}
+// find the "Participant Signature:" label on page 1 and put the signature on the line after it (PDF units, from the bottom-left)
+async function findSigSpot(pg) {
+  try {
+    const items = (await pg.getTextContent()).items.filter(t => t.str && t.str.trim());
+    for (let i = 0; i < items.length; i++) {
+      if (!/participant/i.test(items[i].str)) continue;
+      const base = items[i].transform[5];
+      const lab = /signature/i.test(items[i].str) ? items[i]
+        : items.slice(i + 1, i + 4).find(t => /signature/i.test(t.str) && Math.abs(t.transform[5] - base) < 3);
+      if (!lab) continue;
+      const x = lab.transform[4] + lab.width + 6;
+      const date = items.find(t => /^date/i.test(t.str.trim()) && Math.abs(t.transform[5] - base) < 3 && t.transform[4] > x);
+      const w = Math.max(90, Math.min(200, (date ? date.transform[4] - 12 : x + 190) - x));
+      return { x, y: base - 2, w, h: 34 };
+    }
+  } catch (e) {}
+  return null;
+}
+function signPad(cv) {
+  const dpr = Math.min(window.devicePixelRatio || 1, 3), r = cv.getBoundingClientRect();
+  cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr);
+  const g = cv.getContext('2d'); g.scale(dpr, dpr); g.lineWidth = 2.6; g.lineCap = 'round'; g.lineJoin = 'round'; g.strokeStyle = g.fillStyle = '#0b2a6f';
+  let down = false, last = null, ink = 0;
+  const pt = e => { const b = cv.getBoundingClientRect(); return [e.clientX - b.left, e.clientY - b.top]; };
+  cv.onpointerdown = e => { down = true; try { cv.setPointerCapture(e.pointerId); } catch (x) {} last = pt(e); g.beginPath(); g.arc(last[0], last[1], 1.3, 0, 7); g.fill(); ink += 1; e.preventDefault(); };
+  cv.onpointermove = e => { if (!down) return; const p = pt(e); g.beginPath(); g.moveTo(last[0], last[1]); g.lineTo(p[0], p[1]); g.stroke(); ink += Math.hypot(p[0] - last[0], p[1] - last[1]); last = p; e.preventDefault(); };
+  cv.onpointerup = cv.onpointercancel = () => { down = false; };
+  return { ink: () => ink, clear: () => { g.clearRect(0, 0, cv.width, cv.height); ink = 0; } };
+}
+// crop the drawing to the ink so it fills the signature line
+function trimSig(cv) {
+  const g = cv.getContext('2d'), { width: W, height: H } = cv, px = g.getImageData(0, 0, W, H).data;
+  let x0 = W, y0 = H, x1 = -1, y1 = -1;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (px[(y * W + x) * 4 + 3] > 20) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  if (x1 < 0) return null;
+  const pad = 4, w = x1 - x0 + 1 + pad * 2, h = y1 - y0 + 1 + pad * 2, out = document.createElement('canvas');
+  out.width = w; out.height = h; out.getContext('2d').drawImage(cv, x0 - pad, y0 - pad, w, h, 0, 0, w, h);
+  return out;
+}
+const toB64 = u8 => { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); };
+async function viewSign(doc) {
+  scrollTo(0, 0);
+  const myName = [S.me.first_name, S.me.last_name].filter(Boolean).join(' ');
+  $('view').innerHTML = `<button class="chip" id="sgBack">← Back</button><h1 style="margin-top:12px">${esc(doc.title)}</h1>
+    <p class="muted">Read it through, then sign at the bottom of this screen. Your signature goes on the Participant Signature line on page 1.</p>
+    <div id="sgPages"><div class="note">Loading the document…</div></div>
+    <div class="card" id="sgCard" hidden><h2>Sign here</h2>
+      <p class="muted">Sign with your finger in the box. Turning your phone sideways can make it easier.</p>
+      <canvas id="sgPad" aria-label="Signature box" style="width:100%;height:170px;border:2px dashed var(--line);border-radius:12px;background:#fff;touch-action:none;display:block"></canvas>
+      <button class="btn ghost" id="sgClear" style="margin-top:8px">Clear and start again</button>
+      <label class="f" for="sgName">Your full name</label><input id="sgName" autocomplete="name" value="${esc(myName)}">
+      <label style="display:flex;gap:10px;align-items:flex-start;margin-top:12px"><input type="checkbox" id="sgOk" style="width:auto;margin-top:4px"><span>I have read this document and I agree to it.</span></label>
+      <div id="sgMsg" class="note bad" hidden></div>
+      <button class="btn brand" id="sgGo" style="margin-top:10px">Sign and send</button></div>`;
+  $('sgBack').onclick = () => { render(); scrollTo(0, 0); };
+  let bytes, spot = null;
+  try {
+    const { data, error } = await withTimeout(db.storage.from('sign-docs').download(doc.file_path), 30000, 'Opening the document');
+    if (error) throw error;
+    bytes = new Uint8Array(await data.arrayBuffer());
+    await loadScript(PDFJS); await loadScript(PDFJS_WORKER);   // the worker runs on the page (no separate worker needed)
+    const pdf = await window.pdfjsLib.getDocument({ data: bytes.slice(), isEvalSupported: false, disableFontFace: true }).promise;
+    const box = $('sgPages'); if (!box) return;
+    const wCss = Math.min(box.clientWidth || 360, 820), dpr = Math.min(window.devicePixelRatio || 1, 2);
+    box.innerHTML = '';
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const pg = await pdf.getPage(i), vp = pg.getViewport({ scale: wCss / pg.getViewport({ scale: 1 }).width * dpr });
+      const c = document.createElement('canvas'); c.width = Math.floor(vp.width); c.height = Math.floor(vp.height);
+      c.setAttribute('aria-label', 'Page ' + i + ' of ' + pdf.numPages);
+      c.style.cssText = 'width:100%;display:block;margin:0 0 10px;border:1px solid var(--line);border-radius:6px;background:#fff';
+      box.appendChild(c);
+      await pg.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+      if (i === 1) spot = await findSigSpot(pg);
+    }
+  } catch (e) {
+    if ($('sgPages')) $('sgPages').innerHTML = `<div class="note bad">Could not open the document: ${esc(errMsg(e))}. Try again, or text Matt on ${MATT}.</div>`;
+    return;
+  }
+  $('sgCard').hidden = false;
+  const pad = signPad($('sgPad'));
+  $('sgClear').onclick = () => pad.clear();
+  $('sgPad').addEventListener('pointerdown', () => { $('sgMsg').hidden = true; });
+  const fail = m => { const b = $('sgMsg'); b.textContent = m; b.hidden = false; $('sgGo').disabled = false; $('sgGo').textContent = 'Sign and send'; };
+  $('sgGo').onclick = async () => {
+    $('sgMsg').hidden = true;
+    const name = $('sgName').value.trim();
+    if (pad.ink() < 40) return fail('Please sign in the box first.');
+    if (name.length < 3) return fail('Please type your full name.');
+    if (!$('sgOk').checked) return fail('Please tick the box to say you have read it and agree.');
+    $('sgGo').disabled = true; $('sgGo').textContent = 'Sending…';
+    try {
+      await loadScript(PDFLIB);
+      const { PDFDocument, StandardFonts, rgb } = window.PDFLib;
+      const doc2 = await PDFDocument.load(bytes, { ignoreEncryption: true });
+      const page = doc2.getPage(0), H = page.getHeight();
+      const sp = spot || { x: SIG_FALLBACK.x, y: H - SIG_FALLBACK.bottom, w: SIG_FALLBACK.w, h: 34 };
+      const cut = trimSig($('sgPad')); if (!cut) return fail('Please sign in the box first.');
+      const img = await doc2.embedPng(cut.toDataURL('image/png'));
+      const k = Math.min(sp.w / img.width, sp.h / img.height), w = img.width * k, h = img.height * k;
+      page.drawImage(img, { x: sp.x + 2, y: sp.y, width: w, height: h });
+      const font = await doc2.embedFont(StandardFonts.Helvetica);
+      const when = new Date().toLocaleString('en-NZ', { timeZone: 'Pacific/Auckland', day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+      const ascii = t => t.normalize('NFD').replace(/[^\x20-\x7e]/g, '');
+      page.drawText(ascii(`Signed electronically by ${name}, ${when} (Waikato Interlocks app)`), { x: sp.x + 2, y: sp.y - 9, size: 5, font, color: rgb(0.3, 0.3, 0.3) });
+      const out = await doc2.save();
+      const { data, error } = await withTimeout(db.rpc('sign_doc_submit', { p_id: doc.id, p_pdf_b64: toB64(out), p_name: name }), 45000, 'Sending');
+      if (error) throw error;
+      db.storage.from('sign-docs').remove([doc.file_path]).catch(() => {});
+      await reload(data && data.emailed_you ? 'Signed. A copy has been emailed to you.' : 'Signed and sent to Matt.');
+      scrollTo(0, 0);
+    } catch (e) { fail(errMsg(e)); }
+  };
+}
+
 // ---------- render ----------
 function render() {
   const tabs = [['home','Home'],['book','Book'],['more','Removal'],['help','Help'],['me','Me']];
@@ -1173,6 +1307,7 @@ function viewHome() {
   const today = nzToday(), e = eng(), d = customerDates(e, today), sv = live('service'), rm = live('removal'), m = monthlyOn(today), w = serviceWindow(e, today, servicedDates(S.bookings, services));
   const toApply = d.exitEligible ? Math.round((parseDate(d.exitEligible) - parseDate(today)) / 86400000) : null;
   $('view').innerHTML = `<h1>Hi ${esc(S.me.first_name || 'there')}</h1>
+    ${signCards()}
     ${(S.me.bills || []).map(x => `<div class="card"><h2>Bill to pay: ${money(x.amount_cents / 100)}</h2><p>${esc(x.description)}</p>
       <a class="btn brand" href="?pay=${encodeURIComponent(x.token)}" style="display:block;text-align:center;text-decoration:none">Pay online by card</a>
       <p class="muted" style="margin-top:8px">A 2.5% card fee is added online. Or pay at your next visit by EFTPOS, cash or Afterpay with no fee.</p></div>`).join('')}
@@ -1199,6 +1334,7 @@ function viewHome() {
   document.querySelectorAll('[data-exit]').forEach(b => b.onclick = () => { S.svc = b.dataset.exit; S.tab = 'book'; render(); });
   document.querySelectorAll('[data-heard]').forEach(b => b.onclick = () => { S.tab = b.dataset.heard; render(); scrollTo(0, 0); if (S.tab === 'me') setTimeout(() => { $('lvF')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); $('lv')?.focus(); }, 50); });
   document.querySelectorAll('[data-gobook]').forEach(x => x.onclick = () => { S.veh = x.dataset.gobook; S.svc = 'service'; S.tab = 'book'; render(); });
+  document.querySelectorAll('[data-sign]').forEach(x => x.onclick = () => { const d = (S.signDocs || []).find(y => y.id === x.dataset.sign); if (d) viewSign(d); });
   $('goPrice').onclick = () => { S.tab = 'me'; render(); setTimeout(() => $('prCard')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); };
   wireCancel();
 }
@@ -1381,7 +1517,7 @@ function viewMe() {
       ${S.me.email ? '' : '<p class="muted">We have no email for you, so we text you anyway.</p>'}</div>
     ${homeScreenCard(false)}
     <div class="card"><button class="btn ghost" id="out" style="margin-top:0">Sign out</button><p class="muted" style="text-align:center"><a href="../privacy/">Privacy policy</a></p></div>
-    <p class="muted" style="text-align:center;font-size:.75rem">build 2026-11-18 03:13 UTC</p>`;
+    <p class="muted" style="text-align:center;font-size:.75rem">build 2026-11-18 21:15 UTC</p>`;
   $('out').onclick = signOut;
   wireHomeScreen();
   $('smsOn').onchange = async () => {
