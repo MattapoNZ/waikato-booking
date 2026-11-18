@@ -847,16 +847,16 @@ async function signOut() { await db.auth.signOut(); S.me = null; renderLogin(); 
 // ---------- data ----------
 async function load() {
   const today = nzToday();
-  const [me, bk, av, rav, rt, rq, sd, sg] = await withTimeout(Promise.all([
+  const [me, bk, av, rav, rt, rq, sd, sg, ts] = await withTimeout(Promise.all([
     db.rpc('my_profile'),
     db.from('bookings').select('*').gte('session_date', addDays(today, -60)).neq('status', 'cancelled').order('session_date'),
     db.rpc('my_availability', { p_kind: 'service' }),
     db.rpc('my_availability', { p_kind: 'removal' }),
     db.rpc('my_removal_times'),
     db.from('service_requests').select('*').order('created_at', { ascending: false }).limit(3),
-    db.rpc('my_sign_docs'), db.rpc('my_signed_docs')]), 20000, 'Loading');
+    db.rpc('my_sign_docs'), db.rpc('my_signed_docs'), db.rpc('my_training_status')]), 20000, 'Loading');
   const bad = [me, bk, av, rav, rt, rq].find(r => r.error); if (bad) throw bad.error;
-  S.me = me.data; S.signDocs = sd.error ? [] : (sd.data || []); S.signedDocs = sg.error ? [] : (sg.data || []); S.bookings = bk.data; S.rTimes = rt.data || []; S.requests = rq.data || [];
+  S.me = me.data; S.signDocs = sd.error ? [] : (sd.data || []); S.signedDocs = sg.error ? [] : (sg.data || []); S.trainStatus = ts.error ? {} : (ts.data || {}); S.bookings = bk.data; S.rTimes = rt.data || []; S.requests = rq.data || [];
   const byDay = (a, b) => (a.session_date + String(a.offered_min).padStart(4, '0')).localeCompare(b.session_date + String(b.offered_min).padStart(4, '0'));
   S.avail = (av.data || []).sort(byDay); S.rAvail = (rav.data || []).sort(byDay);
 }
@@ -940,10 +940,82 @@ function trainingHtml(done) {
     <p id="trCount"><b>${n} of ${TRAINING.length}</b> ticked${n === TRAINING.length ? ' — all done, thank you' : ''}</p>
     ${TRAINING.map(([id, t, more]) => `<div class="tr"><label class="chk"><input type="checkbox" data-tr="${id}" ${done.includes(id) ? 'checked' : ''}> ${esc(t)}</label>
       <details class="faq tr-more"><summary>More info</summary><div class="muted" style="margin-top:4px">${more}</div></details></div>`).join('')}
-    <p class="muted" style="margin-top:10px">Questions about any of these? Ask Matt at your install, or text ${MATT}.</p></div>`;
+    <p class="muted" style="margin-top:10px">Questions about any of these? Ask Matt at your install, or text ${MATT}.</p>
+    <div id="trSign"></div></div>`;
+}
+// sign the training form: shown under the checklist once every point is ticked
+function trainSignHtml(n) {
+  const st = S.trainStatus || {};
+  if (st.signed_at) return `<div class="note ok" style="margin-top:12px"><b>Signed ${yDate(String(st.signed_at).slice(0, 10))}.</b> Thank you. Your copy is under Your documents on the Me tab.</div>`;
+  if (n < TRAINING.length) return `<div class="note" style="margin-top:12px"><b>Tick every point above, then sign here.</b> ${TRAINING.length - n} to go.</div>`;
+  const myName = [S.me.first_name, S.me.last_name].filter(Boolean).join(' ');
+  return `<div style="margin-top:14px;border-top:2px solid var(--line);padding-top:12px"><h2>Sign the training form</h2>
+    <p class="muted">By signing you confirm you have watched the training video and understand each point above.</p>
+    <label class="chk"><input type="checkbox" id="tsVid"> I have watched the training video</label>
+    <canvas id="tsPad" aria-label="Signature box" style="width:100%;height:170px;border:2px dashed var(--line);border-radius:12px;background:#fff;touch-action:none;display:block"></canvas>
+    <button class="btn ghost" id="tsClear" style="margin-top:8px">Clear and start again</button>
+    <label class="f" for="tsName">Your full name</label><input id="tsName" autocomplete="name" value="${esc(myName)}">
+    <div id="tsMsg" class="note bad" hidden></div>
+    <button class="btn brand" id="tsGo" style="margin-top:10px">Sign and send</button></div>`;
+}
+function renderTrainSign() {
+  const box = $('trSign'); if (!box || !S.me) return;
+  const n = document.querySelectorAll('[data-tr]:checked').length;
+  const want = (S.trainStatus || {}).signed_at ? 'done' : n < TRAINING.length ? 'wait' + n : 'pad';
+  if (box.dataset.state === want) return;
+  box.dataset.state = want; box.innerHTML = trainSignHtml(n);
+  if (want !== 'pad') return;
+  const pad = signPad($('tsPad'));
+  $('tsClear').onclick = () => pad.clear();
+  $('tsPad').addEventListener('pointerdown', () => { $('tsMsg').hidden = true; });
+  const fail = m => { const b = $('tsMsg'); b.textContent = m; b.hidden = false; $('tsGo').disabled = false; $('tsGo').textContent = 'Sign and send'; };
+  $('tsGo').onclick = async () => {
+    $('tsMsg').hidden = true; const name = $('tsName').value.trim();
+    if (!$('tsVid').checked) return fail('Please watch the training video first, then tick the box.');
+    if (pad.ink() < 40) return fail('Please sign in the box.');
+    if (name.length < 3) return fail('Please type your full name.');
+    $('tsGo').disabled = true; $('tsGo').textContent = 'Sending…';
+    try {
+      const items = TRAINING.map(([id]) => id);
+      const a = await db.rpc('set_training_ack', { p_items: items, p_total: TRAINING.length }); if (a.error) throw a.error;
+      const st = await db.rpc('training_sign_start'); if (st.error) throw st.error;
+      const cut = trimSig($('tsPad')); if (!cut) return fail('Please sign in the box.');
+      const out = await trainingPdf(name, cut.toDataURL('image/png'));
+      try { await withTimeout(db.storage.from('sign-docs').upload(`${S.me.id}/signed/${st.data}.pdf`, new Blob([out], { type: 'application/pdf' }), { contentType: 'application/pdf' }), 30000, 'Saving your copy'); } catch (e) {}
+      const r = await withTimeout(db.rpc('sign_doc_submit', { p_id: st.data, p_pdf_b64: toB64(out), p_name: name, p_sig_png: null }), 45000, 'Sending'); if (r.error) throw r.error;
+      S.training = items;
+      await reload('Training form signed. Thank you.'); scrollTo(0, 0);
+    } catch (e) { fail(errMsg(e)); }
+  };
+}
+// the signed form as a PDF: every point with a tick, then name, date and signature
+async function trainingPdf(name, sigDataUrl) {
+  await loadScript(PDFLIB);
+  const { PDFDocument, StandardFonts, rgb } = window.PDFLib;
+  const pdf = await PDFDocument.create(), font = await pdf.embedFont(StandardFonts.Helvetica), bold = await pdf.embedFont(StandardFonts.HelveticaBold);
+  const W = 595, H = 842, M = 48, safe = t => String(t).normalize('NFC').replace(/[\u2018\u2019]/g, "'").replace(/[^\x20-\x7e\xa0-\xff]/g, '');
+  let page = pdf.addPage([W, H]), y = H - M;
+  const line = (t, f, size, x = M, gap = 4) => { if (y < M + size) { page = pdf.addPage([W, H]); y = H - M; } page.drawText(safe(t), { x, y: y - size, size, font: f, color: rgb(0.1, 0.1, 0.1) }); y -= size + gap; };
+  const wrap = (t, f, size, width) => { const out = []; let cur = ''; for (const w of safe(t).split(' ')) { const nx = cur ? cur + ' ' + w : w; if (f.widthOfTextAtSize(nx, size) > width && cur) { out.push(cur); cur = w; } else cur = nx; } if (cur) out.push(cur); return out; };
+  const when = new Date().toLocaleString('en-NZ', { timeZone: 'Pacific/Auckland', day: 'numeric', month: 'long', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+  line('Training Acknowledgement', bold, 18, M, 6);
+  line('Dräger Interlock (form DSP-ITL-609) - Waikato Interlocks', font, 10, M, 12);
+  line('Participant: ' + name, bold, 11); line('Mobile: ' + (S.me.mobile || '-') + '    Vehicle: ' + (S.me.vehicle || '-'), font, 10, M, 12);
+  line('I have watched the Dräger training video and I confirm each of the following:', font, 10, M, 8);
+  TRAINING.forEach(([, t], i) => { const ls = wrap(t, font, 10, W - M * 2 - 26); if (y < M + ls.length * 13 + 4) { page = pdf.addPage([W, H]); y = H - M; }
+    page.drawText('[x]', { x: M, y: y - 10, size: 10, font: bold }); ls.forEach(l => line(l, font, 10, M + 26, 3)); y -= 3; });
+  if (y < M + 110) { page = pdf.addPage([W, H]); y = H - M; }
+  y -= 10; const img = await pdf.embedPng(sigDataUrl), k = Math.min(200 / img.width, 50 / img.height);
+  page.drawText('Participant signature:', { x: M, y: y - 40, size: 10, font: bold });
+  page.drawImage(img, { x: M + 120, y: y - 50, width: img.width * k, height: img.height * k });
+  page.drawLine({ start: { x: M + 118, y: y - 52 }, end: { x: M + 330, y: y - 52 }, thickness: 0.7 });
+  y -= 62; line('Signed electronically by ' + name + ', ' + when + ' (Waikato Interlocks app)', font, 8, M + 118, 6);
+  line('Name: ' + name + '        Date: ' + when, font, 10);
+  return await pdf.save();
 }
 function wireTraining(signedIn) {
   if (!$('trCard')) return;
+  if (signedIn) renderTrainSign();
   let timer = null;
   const ticked = () => [...document.querySelectorAll('[data-tr]')].filter(x => x.checked).map(x => x.dataset.tr);
   document.querySelectorAll('[data-tr]').forEach(x => x.onchange = () => {
@@ -951,6 +1023,7 @@ function wireTraining(signedIn) {
     $('trCount').innerHTML = `<b>${n} of ${TRAINING.length}</b> ticked${n === TRAINING.length ? ' — all done, thank you' : ''}`;
     try { localStorage.setItem('trainAck', JSON.stringify(t)); } catch (e) {}
     if (signedIn) S.training = t;
+    if (signedIn) renderTrainSign();
     if (!signedIn) return;
     clearTimeout(timer);
     timer = setTimeout(async () => {
@@ -1334,6 +1407,12 @@ function viewHome() {
   const toApply = d.exitEligible ? Math.round((parseDate(d.exitEligible) - parseDate(today)) / 86400000) : null;
   $('view').innerHTML = `<h1>Hi ${esc(S.me.first_name || 'there')}</h1>
     ${signCards()}
+    ${(S.trainStatus || {}).required ? `<div class="card" style="border:4px solid #c62828;background:#fdecea;color:#3b0d0d;padding:22px 18px;text-align:center">
+      <div style="font-size:.85rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#c62828">Action needed</div>
+      <h2 style="font-size:1.6rem;margin:6px 0 8px;color:#8e1010">Watch the training video and sign the training form</h2>
+      <p style="margin:0 0 6px">It shows you how to use your interlock. Then tick each point and sign. About 10 minutes.</p>
+      <a class="btn" href="${VIDEO}" target="_blank" rel="noopener" style="background:#fff;color:#8e1010;border:2px solid #c62828;text-decoration:none">1. Watch the video</a>
+      <button class="btn" id="goTrain" style="background:#c62828;color:#fff;font-size:1.15rem;padding:16px">2. Tick the points and sign</button></div>` : ''}
     ${(S.me.bills || []).map(x => `<div class="card"><h2>Bill to pay: ${money(x.amount_cents / 100)}</h2><p>${esc(x.description)}</p>
       <a class="btn brand" href="?pay=${encodeURIComponent(x.token)}" style="display:block;text-align:center;text-decoration:none">Pay online by card</a>
       <p class="muted" style="margin-top:8px">A 2.5% card fee is added online. Or pay at your next visit by EFTPOS, cash or Afterpay with no fee.</p></div>`).join('')}
@@ -1360,6 +1439,7 @@ function viewHome() {
   document.querySelectorAll('[data-exit]').forEach(b => b.onclick = () => { S.svc = b.dataset.exit; S.tab = 'book'; render(); });
   document.querySelectorAll('[data-heard]').forEach(b => b.onclick = () => { S.tab = b.dataset.heard; render(); scrollTo(0, 0); if (S.tab === 'me') setTimeout(() => { $('lvF')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); $('lv')?.focus(); }, 50); });
   document.querySelectorAll('[data-gobook]').forEach(x => x.onclick = () => { S.veh = x.dataset.gobook; S.svc = 'service'; S.tab = 'book'; render(); });
+  if ($('goTrain')) $('goTrain').onclick = () => { S.tab = 'help'; render(); setTimeout(() => $('trCard')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80); };
   document.querySelectorAll('[data-sign]').forEach(x => x.onclick = () => { const d = (S.signDocs || []).find(y => y.id === x.dataset.sign); if (d) viewSign(d); });
   $('goPrice').onclick = () => { S.tab = 'me'; render(); setTimeout(() => $('prCard')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); };
   wireCancel();
@@ -1544,7 +1624,7 @@ function viewMe() {
     ${signedDocsCard()}
     ${homeScreenCard(false)}
     <div class="card"><button class="btn ghost" id="out" style="margin-top:0">Sign out</button><p class="muted" style="text-align:center"><a href="../privacy/">Privacy policy</a></p></div>
-    <p class="muted" style="text-align:center;font-size:.75rem">build 2026-11-18 22:02 UTC</p>`;
+    <p class="muted" style="text-align:center;font-size:.75rem">build 2026-11-18 23:26 UTC</p>`;
   $('out').onclick = signOut;
   wireHomeScreen(); wireSignedDocs();
   $('smsOn').onchange = async () => {
