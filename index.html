@@ -1126,6 +1126,9 @@ function renderSide() {
       <div class="fact"><div class="label">Theft protection</div><div class="v">${ev.theftProtection ? 'Yes' : 'No'}</div></div>
       <div class="fact"><div class="label">Apply date</div><div class="v">${yDate(d.exitEligible)}${c.apply_date_set_by==='customer'?'<br><span class="flag" style="color:var(--warn)">NZTA date, set by customer</span>':''}</div></div></div>
     ${flag ? `<div class="alert">⚑ ${esc(flag)}</div>` : ''}
+    ${(() => { const ph = [['zeroAlcoholLicencePhoto', 'View zero alcohol licence photo'], ['approvalPhoto', 'View NZTA approval photo']]
+        .filter(([k]) => typeof b.details?.[k] === 'string' && b.details[k].includes('/'));
+      return ph.length ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">${ph.map(([k, n]) => `<button class="btn brand" data-photo="${k}">${n}</button>`).join('')}</div>` : ''; })()}
     ${isInstall(b) ? installBox(b) : nextDueBox(b, ev)}
     ${billBox(b, paid)}
     ${fl && !b.approved_at ? `<div class="alert" style="background:var(--warn-soft);color:var(--ink)">Placeholder only — no time is held. It moves later if a service books that time.</div>
@@ -1180,6 +1183,14 @@ function renderSide() {
   $('edC').onclick = $('edN').onclick = () => { editCustomer(c, 'side', backToRun); showSide(); };
   wirePriceReq(el, backToRun);
   wireBills(el, b, backToRun);
+  el.querySelectorAll('[data-photo]').forEach(x => x.onclick = async () => {
+    const w = window.open('', '_blank');   // opened now so phones don't block the pop-up
+    x.disabled = true;
+    const { data, error } = await db.storage.from('licences').createSignedUrl(b.details[x.dataset.photo], 600);
+    x.disabled = false;
+    if (error || !data?.signedUrl) { if (w) w.close(); return toast(error ? errMsg(error) : 'Could not open the photo', true); }
+    if (w) w.location.href = data.signedUrl; else location.href = data.signedUrl;
+  });
   el.querySelectorAll('[data-x]').forEach(x => x.onclick = () => { S.extras.push(x.dataset.x); renderSide(); });
   const af = $('addFee'); if (af) af.onclick = () => { const v = $('moreFee').value; if (v) { S.extras.push(v); renderSide(); } };
   const cx = $('clrX'); if (cx) cx.onclick = () => { S.extras = []; renderSide(); };
