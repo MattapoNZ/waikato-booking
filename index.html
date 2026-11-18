@@ -1603,7 +1603,7 @@ async function signDocsPanel(box, c) {
   const st = d => d.status === 'signed' ? `<b style="color:var(--ok, #2e7d32)">signed ${day(d.signed_at)}</b>` : d.status === 'cancelled' ? 'cancelled' : '<b style="color:var(--warn, #b26a00)">waiting for them to sign</b>';
   box.innerHTML = `<div class="label">Documents to sign</div>
     ${data.map(d => `<div class="co-line" style="font-size:.88rem;gap:6px;align-items:center"><span>${esc(d.title)}${d.purpose === 'installer' ? ' (your installer signature)' : ''} · sent ${day(d.created_at)} · ${st(d)}</span>
-      <span style="display:flex;gap:4px">${d.status === 'pending' ? `<button class="chip" data-sdv="${d.id}">View</button><button class="chip" data-sdx="${d.id}">Cancel</button>` : d.signed_path ? `<button class="chip" data-sdv="${d.id}">View signed</button>` : ''}</span></div>`).join('')}
+      <span style="display:flex;gap:4px">${d.status === 'pending' ? (d.file_path ? `<button class="chip" data-sdv="${d.id}">View</button><button class="chip" data-sdx="${d.id}">Cancel</button>` : '') : d.signed_path ? `<button class="chip" data-sdv="${d.id}">View signed</button>` : ''}</span></div>`).join('')}
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;align-items:center">
       <input type="file" class="sdFile" accept="application/pdf,.pdf" style="flex:1 1 180px" aria-label="PDF to sign">
       <input class="sdTitle" placeholder="Name, e.g. Client agreement" style="flex:1 1 140px" maxlength="80" aria-label="Document name">
@@ -1650,7 +1650,7 @@ function editCustomer(c, target = 'cside', after = renderCustomers) {
   el.innerHTML = `${target === 'side' ? '<button class="chip" id="edBack">← Back to checkout</button>' : ''}
     <h2>${esc(fullName(c))}</h2><div class="empty">${esc(c.mobile || '')} · ${esc(c.email || '')}</div>
     <div class="empty">Pays now: <b>${m ? esc(m.name) + ' ' + money(m.price) : '—'}</b></div>
-    <div class="empty">Training checklist: <b>${c.training_ack?.completed_at ? 'all ticked ' + new Date(c.training_ack.completed_at).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', timeZone: 'Pacific/Auckland' }) : (c.training_ack?.items || []).length ? (c.training_ack.items.length + ' of 21 ticked') : 'not started'}</b></div>
+    <div class="empty">Training form: <b>${c.training_ack?.signed_at ? '<span style="color:var(--ok, #2e7d32)">signed ' + new Date(c.training_ack.signed_at).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', timeZone: 'Pacific/Auckland' }) + '</span>' : 'not signed'}</b> · checklist: <b>${c.training_ack?.completed_at ? 'all ticked ' + new Date(c.training_ack.completed_at).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', timeZone: 'Pacific/Auckland' }) : (c.training_ack?.items || []).length ? (c.training_ack.items.length + ' of 21 ticked') : 'not started'}</b></div>
     <div id="sdBox" data-cust="${esc(c.id)}" style="margin-top:8px"></div>
     ${priceReqBox(c)}
     ${c.self_registered ? `<div class="alert" style="background:var(--warn-soft);color:var(--ink)"><b>New app sign-up.</b> They entered these details themselves. Check them, then mark as checked.
