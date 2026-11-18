@@ -733,15 +733,17 @@ async function renderLogin(msg) {
   let ext = {};
   try { ext = (await (await fetch(SUPABASE_URL + '/auth/v1/settings', { headers: { apikey: SUPABASE_KEY } })).json()).external || {}; } catch (e) {}
   if (window.__mockSupabase) ext = window.__mockSupabase.providers || ext;
-  const any = ext.phone || ext.google || ext.facebook;
+  const any = ext.email || ext.phone || ext.google || ext.facebook;
   $('lg').innerHTML = (msg ? `<div class="note bad">${esc(msg)}</div>` : '') + (any ? `<h2>Sign in</h2>
-    ${ext.phone ? `<form id="phF"><label class="f" for="ph">Your mobile number</label><input id="ph" type="tel" inputmode="tel" autocomplete="tel" placeholder="021 123 4567" required>
-      <button class="btn brand" id="phGo">Text me a code</button></form><div id="codeBox"></div>` : ''}
-    ${ext.phone && (ext.google || ext.facebook) ? '<p class="muted" style="text-align:center;margin:14px 0 0">or</p>' : ''}
+    ${ext.email ? `<form id="emF"><label class="f" for="em">Your email address</label><input id="em" type="email" autocomplete="email" autocapitalize="off" spellcheck="false" placeholder="you@example.com" required>
+      <button class="btn brand" id="emGo">Email me a code</button></form><div id="emCodeBox"></div>` : ''}
+    ${ext.phone ? `${ext.email ? '<details id="phMore" style="margin-top:14px"><summary class="muted">No email? Get a code by text instead</summary>' : ''}<form id="phF"><label class="f" for="ph">Your mobile number</label><input id="ph" type="tel" inputmode="tel" autocomplete="tel" placeholder="021 123 4567" required>
+      <button class="btn ${ext.email ? 'ghost' : 'brand'}" id="phGo">Text me a code</button></form><div id="codeBox"></div>${ext.email ? '</details>' : ''}` : ''}
+    ${(ext.email || ext.phone) && (ext.google || ext.facebook) ? '<p class="muted" style="text-align:center;margin:14px 0 0">or</p>' : ''}
     ${ext.google ? '<button class="btn ghost" data-o="google">Continue with Google</button>' : ''}
     ${ext.facebook ? '<button class="btn ghost" data-o="facebook">Continue with Facebook</button>' : ''}
     <div id="lgMsg" class="note bad" hidden></div>
-    <p class="muted" style="margin-top:12px">Already a customer? Use the mobile number or email Matt has for you. New here? Sign in and we'll set you up.</p>`
+    <p class="muted" style="margin-top:12px">Already a customer? Use the email or mobile number Matt has for you. New here? Sign in and we'll set you up.</p>`
     : `<h2>Online booking opens soon</h2><p>To book now, text Matt on <a href="sms:${MATT.replace(/ /g,'')}">${MATT}</a>.</p>`);
   const fail = m => { const b = $('lgMsg'); b.textContent = m; b.hidden = false; };
   document.querySelectorAll('[data-o]').forEach(b => b.onclick = async () => {
@@ -749,6 +751,30 @@ async function renderLogin(msg) {
     const { error } = await db.auth.signInWithOAuth({ provider: b.dataset.o, options: { redirectTo: location.origin + location.pathname } });
     if (error) { b.disabled = false; fail(errMsg(error)); }
   });
+  if ($('emF')) $('emF').onsubmit = async e => {
+    e.preventDefault(); const email = $('em').value.trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return fail('Enter your email address, like name@gmail.com');
+    $('lgMsg').hidden = true; $('emGo').disabled = true; $('emGo').textContent = 'Sending…';
+    try {
+      const { error } = await withTimeout(db.auth.signInWithOtp({ email, options: { shouldCreateUser: true, emailRedirectTo: location.origin + location.pathname } }), 20000, 'Sending the email');
+      if (error) throw error;
+      $('emGo').textContent = 'Send it again'; $('emGo').disabled = false;
+      $('emCodeBox').innerHTML = `<p class="muted" style="margin:10px 0 0">We've emailed <b>${esc(email)}</b>. <b>Tap the sign-in link in the email</b> on this phone, or type the code from it below. It can take a minute, and check your junk folder.</p>
+        <form id="ecF"><label class="f" for="ec">Code from the email (if it has one)</label><input id="ec" inputmode="numeric" autocomplete="one-time-code" maxlength="10" required>
+        <button class="btn" id="ecGo">Sign in</button></form>`;
+      $('ec').focus();
+      $('ecF').onsubmit = async ev => {
+        ev.preventDefault(); $('ecGo').disabled = true; $('lgMsg').hidden = true;
+        try {
+          const { error } = await withTimeout(db.auth.verifyOtp({ email, token: $('ec').value.replace(/\s/g, ''), type: 'email' }), 20000, 'Checking the code');
+          if (error) throw error; await start();
+        } catch (er) { $('ecGo').disabled = false; fail(/expired|invalid/i.test(errMsg(er)) ? 'That code is wrong or has expired. Try again.' : errMsg(er)); }
+      };
+    } catch (er) {
+      $('emGo').disabled = false; $('emGo').textContent = 'Email me a code';
+      fail(/rate|limit|seconds/i.test(errMsg(er)) ? 'Please wait a minute before asking for another code.' : /sending|smtp|email/i.test(errMsg(er)) ? 'We could not send the email just now. Try again shortly, or text Matt on ' + MATT + '.' : errMsg(er));
+    }
+  };
   if ($('phF')) $('phF').onsubmit = async e => {
     e.preventDefault(); const phone = nzPhone($('ph').value);
     if (!phone) return fail('Enter your NZ mobile number, like 021 123 4567');
@@ -1316,7 +1342,7 @@ function viewMe() {
       ${S.me.email ? '' : '<p class="muted">We have no email for you, so we text you anyway.</p>'}</div>
     ${homeScreenCard(false)}
     <div class="card"><button class="btn ghost" id="out" style="margin-top:0">Sign out</button><p class="muted" style="text-align:center"><a href="../privacy/">Privacy policy</a></p></div>
-    <p class="muted" style="text-align:center;font-size:.75rem">build 2026-11-17 22:47 UTC</p>`;
+    <p class="muted" style="text-align:center;font-size:.75rem">build 2026-11-18 02:21 UTC</p>`;
   $('out').onclick = signOut;
   wireHomeScreen();
   $('smsOn').onchange = async () => {
