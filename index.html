@@ -1593,13 +1593,62 @@ async function creditPanel(box, custId, onChange) {
     onChange ? onChange() : creditPanel(box, custId);
   };
 }
+// ---------- documents for the customer to sign in their app ----------
+// Upload a PDF; it shows in their app; they sign on their phone; the signed PDF is emailed to Matt and to them.
+// The original is deleted once signed (contracts hold private details), so the email is the copy to keep.
+async function signDocsPanel(box, c) {
+  const { data, error } = await db.from('sign_docs').select('*').eq('customer_id', c.id).order('created_at', { ascending: false }).limit(10);
+  if (error) { box.innerHTML = `<div class="empty">Documents to sign aren't switched on yet — run step29-sign-documents.sql in Supabase.</div>`; return; }
+  const day = t => new Date(t).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', timeZone: 'Pacific/Auckland' });
+  const st = d => d.status === 'signed' ? `<b style="color:var(--ok, #2e7d32)">signed ${day(d.signed_at)}</b>` : d.status === 'cancelled' ? 'cancelled' : '<b style="color:var(--warn, #b26a00)">waiting for them to sign</b>';
+  box.innerHTML = `<div class="label">Documents to sign</div>
+    ${data.map(d => `<div class="co-line" style="font-size:.88rem;gap:6px;align-items:center"><span>${esc(d.title)} · sent ${day(d.created_at)} · ${st(d)}</span>
+      <span style="display:flex;gap:4px">${d.status === 'pending' ? `<button class="chip" data-sdv="${d.id}">View</button><button class="chip" data-sdx="${d.id}">Cancel</button>` : ''}</span></div>`).join('')}
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;align-items:center">
+      <input type="file" class="sdFile" accept="application/pdf,.pdf" style="flex:1 1 180px" aria-label="PDF to sign">
+      <input class="sdTitle" placeholder="Name, e.g. Client agreement" style="flex:1 1 140px" maxlength="80" aria-label="Document name">
+      <button class="btn ghost sdGo">Send to sign</button></div>
+    <div class="empty" style="font-size:.8rem;margin-top:2px">${c.email ? 'They get an email' : c.mobile ? 'They get a text' : 'They have no email or mobile, so tell them'} to open the app. Their signature goes on the Participant Signature line on page 1. The signed PDF is emailed to you${c.email ? ' and them' : ''}; it isn't kept here.</div>`;
+  const file = box.querySelector('.sdFile'), title = box.querySelector('.sdTitle');
+  file.onchange = () => { if (file.files[0] && !title.value.trim()) title.value = file.files[0].name.replace(/\.pdf$/i, '').replace(/[_-]+/g, ' ').slice(0, 80); };
+  box.querySelector('.sdGo').onclick = async e => {
+    const f = file.files[0], t = title.value.trim();
+    if (!f) return toast('Choose the PDF first', true);
+    if (!/pdf$/i.test(f.type) && !/\.pdf$/i.test(f.name)) return toast('That is not a PDF', true);
+    if (f.size > 10 * 1024 * 1024) return toast('That PDF is over 10 MB', true);
+    if (!t) return toast('Give it a name', true);
+    e.target.disabled = true;
+    const path = `${c.id}/${crypto.randomUUID()}.pdf`;
+    const up = await db.storage.from('sign-docs').upload(path, f, { contentType: 'application/pdf', upsert: false });
+    if (up.error) { e.target.disabled = false; return toast(errMsg(up.error), true); }
+    const { error } = await db.from('sign_docs').insert({ customer_id: c.id, title: t, file_path: path });
+    if (error) { await db.storage.from('sign-docs').remove([path]); e.target.disabled = false; return toast(errMsg(error), true); }
+    toast(`Sent to ${fullName(c)} to sign`); signDocsPanel(box, c);
+  };
+  box.querySelectorAll('[data-sdv]').forEach(x => x.onclick = async () => {
+    const d = data.find(y => y.id === x.dataset.sdv), w = window.open('', '_blank');
+    const { data: u, error } = await db.storage.from('sign-docs').createSignedUrl(d.file_path, 600);
+    if (error) { if (w) w.close(); return toast(errMsg(error), true); }
+    if (w) w.location = u.signedUrl; else location.href = u.signedUrl;
+  });
+  box.querySelectorAll('[data-sdx]').forEach(x => x.onclick = async () => {
+    if (x.dataset.sure !== '1') { x.dataset.sure = '1'; x.textContent = 'Tap again'; return; }
+    const d = data.find(y => y.id === x.dataset.sdx);
+    const { error } = await db.from('sign_docs').update({ status: 'cancelled' }).eq('id', d.id);
+    if (error) return toast(errMsg(error), true);
+    if (d.file_path) await db.storage.from('sign-docs').remove([d.file_path]);
+    toast('Cancelled'); signDocsPanel(box, c);
+  });
+}
 function editCustomer(c, target = 'cside', after = renderCustomers) {
+  setTimeout(() => { const b = document.getElementById('sdBox'); if (b && b.dataset.cust === c.id) signDocsPanel(b, c); }, 0);
   const d = customerDates(eng(c), nzToday()), el = $(target);
   const m = allowedServices(eng(c), services, nzToday()).find(x => x.group === 'service');
   el.innerHTML = `${target === 'side' ? '<button class="chip" id="edBack">← Back to checkout</button>' : ''}
     <h2>${esc(fullName(c))}</h2><div class="empty">${esc(c.mobile || '')} · ${esc(c.email || '')}</div>
     <div class="empty">Pays now: <b>${m ? esc(m.name) + ' ' + money(m.price) : '—'}</b></div>
     <div class="empty">Training checklist: <b>${c.training_ack?.completed_at ? 'all ticked ' + new Date(c.training_ack.completed_at).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', timeZone: 'Pacific/Auckland' }) : (c.training_ack?.items || []).length ? (c.training_ack.items.length + ' of 21 ticked') : 'not started'}</b></div>
+    <div id="sdBox" data-cust="${esc(c.id)}" style="margin-top:8px"></div>
     ${priceReqBox(c)}
     ${c.self_registered ? `<div class="alert" style="background:var(--warn-soft);color:var(--ink)"><b>New app sign-up.</b> They entered these details themselves. Check them, then mark as checked.
       <div class="grid2" style="margin-top:8px"><button class="btn brand" id="mkChecked">Details checked</button><button class="btn ghost" id="joinOpen">Join with existing customer</button></div><div id="joinBox"></div></div>` : ''}
