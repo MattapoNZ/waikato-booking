@@ -583,6 +583,17 @@ function urlAuthError() {
   if (e) history.replaceState(null, '', location.pathname);
   return e ? 'Sign-in did not finish: ' + e.replace(/\+/g, ' ') + '. Please try again, or text Matt on ' + MATT + '.' : null;
 }
+// ---------- temporary "quick update" notice with a live countdown (hides itself when time is up) ----------
+const UPDATE_UNTIL = Date.parse('2026-11-18T16:30:00+13:00');
+const cdText = () => { const ms = Math.max(0, UPDATE_UNTIL - Date.now()), m = Math.floor(ms / 60000), sec = Math.floor(ms / 1000) % 60;
+  return m + ':' + String(sec).padStart(2, '0'); };
+const updateBanner = () => Date.now() >= UPDATE_UNTIL ? '' : `<div class="note upd" style="border:2px solid var(--brand);margin:10px 0"><b>We've just made a quick update.</b>
+  Signing in will be back up and running within the hour. <b>Back in <span class="t" data-cd>${cdText()}</span></b><br><span class="muted">Can't wait? Text or call Matt on ${MATT}.</span></div>`;
+setInterval(() => {
+  const els = document.querySelectorAll('[data-cd]');
+  if (Date.now() >= UPDATE_UNTIL) { document.querySelectorAll('.upd').forEach(e => e.remove()); return; }
+  els.forEach(e => e.textContent = cdText());
+}, 1000);
 // ---------- pay a bill (link from an email or text; no sign-in needed) ----------
 async function renderPay(token) {
   const done = new URLSearchParams(location.search).get('done');
@@ -728,7 +739,7 @@ async function start() {
 
 async function renderLogin(msg) {
   $('app').innerHTML = `<h1>Waikato Interlocks</h1><p class="muted">Book your interlock service, see your dates and what you pay.</p>
-    <div class="card" id="lg">${msg ? `<div class="note bad">${esc(msg)}</div>` : ''}<p class="muted">Checking sign-in options…</p></div>
+    ${updateBanner()}<div class="card" id="lg">${msg ? `<div class="note bad">${esc(msg)}</div>` : ''}<p class="muted">Checking sign-in options…</p></div>
     <p class="muted" style="text-align:center;margin-top:16px"><b>New here and need an interlock fitted?</b> <a href="?new">Send us your details</a><br><a href="?help">Help, guides and questions</a><br>Anything urgent: text or call Matt on <a href="tel:${MATT.replace(/ /g,'')}">${MATT}</a><br>${unlockNote()}<br><a href="../privacy/">Privacy policy</a> · <a href="../?staff">Staff</a></p>`;
   let ext = {};
   try { ext = (await (await fetch(SUPABASE_URL + '/auth/v1/settings', { headers: { apikey: SUPABASE_KEY } })).json()).external || {}; } catch (e) {}
@@ -1137,7 +1148,7 @@ function viewHome() {
     ${(S.me.bills || []).map(x => `<div class="card"><h2>Bill to pay: ${money(x.amount_cents / 100)}</h2><p>${esc(x.description)}</p>
       <a class="btn brand" href="?pay=${encodeURIComponent(x.token)}" style="display:block;text-align:center;text-decoration:none">Pay online by card</a>
       <p class="muted" style="margin-top:8px">A 2.5% card fee is added online. Or pay at your next visit by EFTPOS, cash or Afterpay with no fee.</p></div>`).join('')}
-    ${NOTICES.filter(n => today <= n.until).map(n => `<div class="note">${n.html}</div>`).join('')}
+    ${updateBanner()}${NOTICES.filter(n => today <= n.until).map(n => `<div class="note">${n.html}</div>`).join('')}
     ${exitCard(d, today, w)}
     ${VEH().map(v => { const vid = v ? v.id : '', s = live('service', false, multi() ? vid : undefined);
       const wv = serviceWindow(engV(v), today, servicedDates(multi() ? vBookings(v) : S.bookings, services));
@@ -1342,7 +1353,7 @@ function viewMe() {
       ${S.me.email ? '' : '<p class="muted">We have no email for you, so we text you anyway.</p>'}</div>
     ${homeScreenCard(false)}
     <div class="card"><button class="btn ghost" id="out" style="margin-top:0">Sign out</button><p class="muted" style="text-align:center"><a href="../privacy/">Privacy policy</a></p></div>
-    <p class="muted" style="text-align:center;font-size:.75rem">build 2026-11-18 02:21 UTC</p>`;
+    <p class="muted" style="text-align:center;font-size:.75rem">build 2026-11-18 02:29 UTC</p>`;
   $('out').onclick = signOut;
   wireHomeScreen();
   $('smsOn').onchange = async () => {
