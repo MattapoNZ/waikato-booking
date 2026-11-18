@@ -730,7 +730,12 @@ async function start() {
     const { data: linked, error } = await withTimeout(db.rpc('link_me'), 15000, 'Finding your details');
     if (error) return renderLogin(errMsg(error));
     if (!linked) return renderNoMatch();
-    await load(); render();
+    await load();
+    // the link Matt sends for the training form opens straight on the checklist
+    const toTrain = qs.has('training') && (S.trainStatus || {}).required;
+    if (toTrain) S.tab = 'help';
+    render();
+    if (toTrain) setTimeout(() => $('trCard')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 300);
   } catch (e) { renderLogin(errMsg(e)); }
 }
 
@@ -947,6 +952,7 @@ function trainingHtml(done) {
 function trainSignHtml(n) {
   const st = S.trainStatus || {};
   if (st.signed_at) return `<div class="note ok" style="margin-top:12px"><b>Signed ${yDate(String(st.signed_at).slice(0, 10))}.</b> Thank you. Your copy is under Your documents on the Me tab.</div>`;
+  if (!st.requested) return '';   // only asked for once Matt sends it from the run sheet
   if (n < TRAINING.length) return `<div class="note" style="margin-top:12px"><b>Tick every point above, then sign here.</b> ${TRAINING.length - n} to go.</div>`;
   const myName = [S.me.first_name, S.me.last_name].filter(Boolean).join(' ');
   return `<div style="margin-top:14px;border-top:2px solid var(--line);padding-top:12px"><h2>Sign the training form</h2>
@@ -961,7 +967,7 @@ function trainSignHtml(n) {
 function renderTrainSign() {
   const box = $('trSign'); if (!box || !S.me) return;
   const n = document.querySelectorAll('[data-tr]:checked').length;
-  const want = (S.trainStatus || {}).signed_at ? 'done' : n < TRAINING.length ? 'wait' + n : 'pad';
+  const want = (S.trainStatus || {}).signed_at ? 'done' : !(S.trainStatus || {}).requested ? 'off' : n < TRAINING.length ? 'wait' + n : 'pad';
   if (box.dataset.state === want) return;
   box.dataset.state = want; box.innerHTML = trainSignHtml(n);
   if (want !== 'pad') return;
@@ -1624,7 +1630,7 @@ function viewMe() {
     ${signedDocsCard()}
     ${homeScreenCard(false)}
     <div class="card"><button class="btn ghost" id="out" style="margin-top:0">Sign out</button><p class="muted" style="text-align:center"><a href="../privacy/">Privacy policy</a></p></div>
-    <p class="muted" style="text-align:center;font-size:.75rem">build 2026-11-18 23:26 UTC</p>`;
+    <p class="muted" style="text-align:center;font-size:.75rem">build 2026-11-18 23:52 UTC</p>`;
   $('out').onclick = signOut;
   wireHomeScreen(); wireSignedDocs();
   $('smsOn').onchange = async () => {
