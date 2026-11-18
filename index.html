@@ -1602,12 +1602,13 @@ async function signDocsPanel(box, c) {
   const day = t => new Date(t).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', timeZone: 'Pacific/Auckland' });
   const st = d => d.status === 'signed' ? `<b style="color:var(--ok, #2e7d32)">signed ${day(d.signed_at)}</b>` : d.status === 'cancelled' ? 'cancelled' : '<b style="color:var(--warn, #b26a00)">waiting for them to sign</b>';
   box.innerHTML = `<div class="label">Documents to sign</div>
-    ${data.map(d => `<div class="co-line" style="font-size:.88rem;gap:6px;align-items:center"><span>${esc(d.title)} · sent ${day(d.created_at)} · ${st(d)}</span>
+    ${data.map(d => `<div class="co-line" style="font-size:.88rem;gap:6px;align-items:center"><span>${esc(d.title)}${d.purpose === 'installer' ? ' (your installer signature)' : ''} · sent ${day(d.created_at)} · ${st(d)}</span>
       <span style="display:flex;gap:4px">${d.status === 'pending' ? `<button class="chip" data-sdv="${d.id}">View</button><button class="chip" data-sdx="${d.id}">Cancel</button>` : ''}</span></div>`).join('')}
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;align-items:center">
       <input type="file" class="sdFile" accept="application/pdf,.pdf" style="flex:1 1 180px" aria-label="PDF to sign">
       <input class="sdTitle" placeholder="Name, e.g. Client agreement" style="flex:1 1 140px" maxlength="80" aria-label="Document name">
       <button class="btn ghost sdGo">Send to sign</button></div>
+    <label style="display:flex;gap:6px;align-items:center;font-size:.85rem;margin-top:4px"><input type="checkbox" class="sdMine" style="width:auto"> This is for my own installer signature (I sign it myself; saved for the Installer Signature line on future documents)</label>
     <div class="empty" style="font-size:.8rem;margin-top:2px">${c.email ? 'They get an email' : c.mobile ? 'They get a text' : 'They have no email or mobile, so tell them'} to open the app. Their signature goes on the Participant Signature line on page 1. The signed PDF is emailed to you${c.email ? ' and them' : ''}; it isn't kept here.</div>`;
   const file = box.querySelector('.sdFile'), title = box.querySelector('.sdTitle');
   file.onchange = () => { if (file.files[0] && !title.value.trim()) title.value = file.files[0].name.replace(/\.pdf$/i, '').replace(/[_-]+/g, ' ').slice(0, 80); };
@@ -1621,7 +1622,9 @@ async function signDocsPanel(box, c) {
     const path = `${c.id}/${crypto.randomUUID()}.pdf`;
     const up = await db.storage.from('sign-docs').upload(path, f, { contentType: 'application/pdf', upsert: false });
     if (up.error) { e.target.disabled = false; return toast(errMsg(up.error), true); }
-    const { error } = await db.from('sign_docs').insert({ customer_id: c.id, title: t, file_path: path });
+    const row = { customer_id: c.id, title: t, file_path: path };
+    if (box.querySelector('.sdMine').checked) row.purpose = 'installer';
+    const { error } = await db.from('sign_docs').insert(row);
     if (error) { await db.storage.from('sign-docs').remove([path]); e.target.disabled = false; return toast(errMsg(error), true); }
     toast(`Sent to ${fullName(c)} to sign`); signDocsPanel(box, c);
   };
