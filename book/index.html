@@ -1075,15 +1075,18 @@ function loadScript(src) {
   });
 }
 function signCards() {
-  return (S.signDocs || []).map(d => `<div class="card" style="border:2px solid var(--brand)"><h2>Please sign: ${esc(d.title)}</h2>
+  return (S.signDocs || []).map(d => d.purpose === 'installer'
+    ? `<div class="card" style="border:2px solid var(--brand)"><h2>Installer signature: ${esc(d.title)}</h2>
+    <p>Sign this one yourself. Your signature goes on both lines and is saved for the Installer Signature line on future documents.</p><button class="btn brand" data-sign="${d.id}">Read and sign</button></div>`
+    : `<div class="card" style="border:2px solid var(--brand)"><h2>Please sign: ${esc(d.title)}</h2>
     <p>Matt has sent you a document to read and sign on your phone. It takes a minute.</p><button class="btn brand" data-sign="${d.id}">Read and sign</button></div>`).join('');
 }
 // find the "Participant Signature:" label on page 1 and put the signature on the line after it (PDF units, from the bottom-left)
-async function findSigSpot(pg) {
+async function findSigSpot(pg, who = /participant/i) {
   try {
     const items = (await pg.getTextContent()).items.filter(t => t.str && t.str.trim());
     for (let i = 0; i < items.length; i++) {
-      if (!/participant/i.test(items[i].str)) continue;
+      if (!who.test(items[i].str)) continue;
       const base = items[i].transform[5];
       const lab = /signature/i.test(items[i].str) ? items[i]
         : items.slice(i + 1, i + 4).find(t => /signature/i.test(t.str) && Math.abs(t.transform[5] - base) < 3);
@@ -1122,7 +1125,7 @@ async function viewSign(doc) {
   scrollTo(0, 0);
   const myName = [S.me.first_name, S.me.last_name].filter(Boolean).join(' ');
   $('view').innerHTML = `<button class="chip" id="sgBack">← Back</button><h1 style="margin-top:12px">${esc(doc.title)}</h1>
-    <p class="muted">Read it through, then sign at the bottom of this screen. Your signature goes on the Participant Signature line on page 1.</p>
+    <p class="muted">${doc.purpose === 'installer' ? 'Your installer signature: it goes on both signature lines on page 1 and is saved for the Installer Signature line on future documents.' : 'Read it through, then sign at the bottom of this screen. Your signature goes on the Participant Signature line on page 1.'}</p>
     <div id="sgPages"><div class="note">Loading the document…</div></div>
     <div class="card" id="sgCard" hidden><h2>Sign here</h2>
       <p class="muted">Sign with your finger in the box. Turning your phone sideways can make it easier.</p>
@@ -1133,7 +1136,8 @@ async function viewSign(doc) {
       <div id="sgMsg" class="note bad" hidden></div>
       <button class="btn brand" id="sgGo" style="margin-top:10px">Sign and send</button></div>`;
   $('sgBack').onclick = () => { render(); scrollTo(0, 0); };
-  let bytes, spot = null;
+  let bytes, spot = null, inst = null;
+  const asInstaller = doc.purpose === 'installer';
   try {
     const { data, error } = await withTimeout(db.storage.from('sign-docs').download(doc.file_path), 30000, 'Opening the document');
     if (error) throw error;
@@ -1150,7 +1154,7 @@ async function viewSign(doc) {
       c.style.cssText = 'width:100%;display:block;margin:0 0 10px;border:1px solid var(--line);border-radius:6px;background:#fff';
       box.appendChild(c);
       await pg.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
-      if (i === 1) spot = await findSigSpot(pg);
+      if (i === 1) { spot = await findSigSpot(pg); inst = await findSigSpot(pg, /installer/i); }
     }
   } catch (e) {
     if ($('sgPages')) $('sgPages').innerHTML = `<div class="note bad">Could not open the document: ${esc(errMsg(e))}. Try again, or text Matt on ${MATT}.</div>`;
@@ -1175,18 +1179,23 @@ async function viewSign(doc) {
       const page = doc2.getPage(0), H = page.getHeight();
       const sp = spot || { x: SIG_FALLBACK.x, y: H - SIG_FALLBACK.bottom, w: SIG_FALLBACK.w, h: 34 };
       const cut = trimSig($('sgPad')); if (!cut) return fail('Please sign in the box first.');
+      const sigB64 = cut.toDataURL('image/png').split(',')[1];
+      const put = (im, at) => { const k = Math.min(at.w / im.width, at.h / im.height); page.drawImage(im, { x: at.x + 2, y: at.y, width: im.width * k, height: im.height * k }); };
       const img = await doc2.embedPng(cut.toDataURL('image/png'));
-      const k = Math.min(sp.w / img.width, sp.h / img.height), w = img.width * k, h = img.height * k;
-      page.drawImage(img, { x: sp.x + 2, y: sp.y, width: w, height: h });
+      put(img, sp);
+      if (inst) {   // the installer's line: Matt's own signature, saved from the one he signed himself
+        if (asInstaller) put(img, inst);
+        else { const r = await db.rpc('sign_doc_installer_sig', { p_id: doc.id }); if (!r.error && r.data) put(await doc2.embedPng('data:image/png;base64,' + r.data), inst); }
+      }
       const font = await doc2.embedFont(StandardFonts.Helvetica);
       const when = new Date().toLocaleString('en-NZ', { timeZone: 'Pacific/Auckland', day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' });
       const ascii = t => t.normalize('NFD').replace(/[^\x20-\x7e]/g, '');
       page.drawText(ascii(`Signed electronically by ${name}, ${when} (Waikato Interlocks app)`), { x: sp.x + 2, y: sp.y - 9, size: 5, font, color: rgb(0.3, 0.3, 0.3) });
       const out = await doc2.save();
-      const { data, error } = await withTimeout(db.rpc('sign_doc_submit', { p_id: doc.id, p_pdf_b64: toB64(out), p_name: name }), 45000, 'Sending');
+      const { data, error } = await withTimeout(db.rpc('sign_doc_submit', { p_id: doc.id, p_pdf_b64: toB64(out), p_name: name, p_sig_png: asInstaller ? sigB64 : null }), 45000, 'Sending');
       if (error) throw error;
       db.storage.from('sign-docs').remove([doc.file_path]).catch(() => {});
-      await reload(data && data.emailed_you ? 'Signed. A copy has been emailed to you.' : 'Signed and sent to Matt.');
+      await reload(data && data.installer_saved ? 'Signed. Your installer signature is saved.' : data && data.emailed_you ? 'Signed. A copy has been emailed to you.' : 'Signed and sent to Matt.');
       scrollTo(0, 0);
     } catch (e) { fail(errMsg(e)); }
   };
@@ -1517,7 +1526,7 @@ function viewMe() {
       ${S.me.email ? '' : '<p class="muted">We have no email for you, so we text you anyway.</p>'}</div>
     ${homeScreenCard(false)}
     <div class="card"><button class="btn ghost" id="out" style="margin-top:0">Sign out</button><p class="muted" style="text-align:center"><a href="../privacy/">Privacy policy</a></p></div>
-    <p class="muted" style="text-align:center;font-size:.75rem">build 2026-11-18 21:15 UTC</p>`;
+    <p class="muted" style="text-align:center;font-size:.75rem">build 2026-11-18 21:26 UTC</p>`;
   $('out').onclick = signOut;
   wireHomeScreen();
   $('smsOn').onchange = async () => {
