@@ -1651,6 +1651,8 @@ function editCustomer(c, target = 'cside', after = renderCustomers) {
     <h2>${esc(fullName(c))}</h2><div class="empty">${esc(c.mobile || '')} · ${esc(c.email || '')}</div>
     <div class="empty">Pays now: <b>${m ? esc(m.name) + ' ' + money(m.price) : '—'}</b></div>
     <div class="empty">Training form: <b>${c.training_ack?.signed_at ? '<span style="color:var(--ok, #2e7d32)">signed ' + new Date(c.training_ack.signed_at).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', timeZone: 'Pacific/Auckland' }) + '</span>' : 'not signed'}</b> · checklist: <b>${c.training_ack?.completed_at ? 'all ticked ' + new Date(c.training_ack.completed_at).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', timeZone: 'Pacific/Auckland' }) : (c.training_ack?.items || []).length ? (c.training_ack.items.length + ' of 21 ticked') : 'not started'}</b></div>
+    ${c.training_ack?.signed_at ? '' : `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:4px"><button class="btn ghost" id="trSend">${c.training_requested_at ? 'Send training again' : 'Send training to do and sign'}</button>
+      ${c.training_requested_at ? `<span class="empty">Sent ${new Date(c.training_requested_at).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', timeZone: 'Pacific/Auckland' })}, not signed yet</span><button class="chip" id="trUnsend">Stop asking</button>` : '<span class="empty">Video, checklist and signature. They are only asked once you send it.</span>'}</div>`}
     <div id="sdBox" data-cust="${esc(c.id)}" style="margin-top:8px"></div>
     ${priceReqBox(c)}
     ${c.self_registered ? `<div class="alert" style="background:var(--warn-soft);color:var(--ink)"><b>New app sign-up.</b> They entered these details themselves. Check them, then mark as checked.
@@ -1673,6 +1675,18 @@ function editCustomer(c, target = 'cside', after = renderCustomers) {
     <div id="credBox" style="margin-top:16px;border-top:1px solid var(--line);padding-top:10px"></div>`;
   loadVehicles(c);
   creditPanel($('credBox'), c.id);
+  if ($('trSend')) $('trSend').onclick = async () => {
+    $('trSend').disabled = true;
+    const { data, error } = await db.rpc('training_send', { p_customer: c.id });
+    if (error) { $('trSend').disabled = false; return toast(errMsg(error), true); }
+    toast(data === 'email' ? 'Training sent by email' : data === 'sms' ? 'Training sent by text' : 'Switched on in their app. No email or mobile on file, so tell them.', data === 'none');
+    c.training_requested_at = new Date().toISOString(); editCustomer(c, target, after);
+  };
+  if ($('trUnsend')) $('trUnsend').onclick = async () => {
+    const { error } = await db.rpc('training_unsend', { p_customer: c.id });
+    if (error) return toast(errMsg(error), true);
+    toast('They are no longer asked to do the training'); c.training_requested_at = null; editCustomer(c, target, after);
+  };
   if ($('edBack')) $('edBack').onclick = after;
   wirePriceReq(el, after);
   if ($('mkChecked')) $('mkChecked').onclick = async () => {
