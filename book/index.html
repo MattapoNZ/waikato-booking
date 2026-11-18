@@ -847,16 +847,16 @@ async function signOut() { await db.auth.signOut(); S.me = null; renderLogin(); 
 // ---------- data ----------
 async function load() {
   const today = nzToday();
-  const [me, bk, av, rav, rt, rq, sd] = await withTimeout(Promise.all([
+  const [me, bk, av, rav, rt, rq, sd, sg] = await withTimeout(Promise.all([
     db.rpc('my_profile'),
     db.from('bookings').select('*').gte('session_date', addDays(today, -60)).neq('status', 'cancelled').order('session_date'),
     db.rpc('my_availability', { p_kind: 'service' }),
     db.rpc('my_availability', { p_kind: 'removal' }),
     db.rpc('my_removal_times'),
     db.from('service_requests').select('*').order('created_at', { ascending: false }).limit(3),
-    db.rpc('my_sign_docs')]), 20000, 'Loading');
+    db.rpc('my_sign_docs'), db.rpc('my_signed_docs')]), 20000, 'Loading');
   const bad = [me, bk, av, rav, rt, rq].find(r => r.error); if (bad) throw bad.error;
-  S.me = me.data; S.signDocs = sd.error ? [] : (sd.data || []); S.bookings = bk.data; S.rTimes = rt.data || []; S.requests = rq.data || [];
+  S.me = me.data; S.signDocs = sd.error ? [] : (sd.data || []); S.signedDocs = sg.error ? [] : (sg.data || []); S.bookings = bk.data; S.rTimes = rt.data || []; S.requests = rq.data || [];
   const byDay = (a, b) => (a.session_date + String(a.offered_min).padStart(4, '0')).localeCompare(b.session_date + String(b.offered_min).padStart(4, '0'));
   S.avail = (av.data || []).sort(byDay); S.rAvail = (rav.data || []).sort(byDay);
 }
@@ -1075,11 +1075,25 @@ function loadScript(src) {
   });
 }
 function signCards() {
-  return (S.signDocs || []).map(d => d.purpose === 'installer'
-    ? `<div class="card" style="border:2px solid var(--brand)"><h2>Installer signature: ${esc(d.title)}</h2>
-    <p>Sign this one yourself. Your signature goes on both lines and is saved for the Installer Signature line on future documents.</p><button class="btn brand" data-sign="${d.id}">Read and sign</button></div>`
-    : `<div class="card" style="border:2px solid var(--brand)"><h2>Please sign: ${esc(d.title)}</h2>
-    <p>Matt has sent you a document to read and sign on your phone. It takes a minute.</p><button class="btn brand" data-sign="${d.id}">Read and sign</button></div>`).join('');
+  return (S.signDocs || []).map(d => `<div class="card" style="border:4px solid #c62828;background:#fdecea;color:#3b0d0d;padding:22px 18px;text-align:center">
+    <div style="font-size:.85rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#c62828">Action needed</div>
+    <h2 style="font-size:1.7rem;margin:6px 0 8px;color:#8e1010">${d.purpose === 'installer' ? 'Installer signature' : 'Please sign your document'}</h2>
+    <p style="font-size:1.1rem;margin:0 0 4px"><b>${esc(d.title)}</b></p>
+    <p style="margin:0 0 6px">${d.purpose === 'installer' ? 'Sign this one yourself. Your signature is saved for the Installer Signature line on future documents.' : 'Matt needs you to read and sign this on your phone. It takes a minute.'}</p>
+    <button class="btn" data-sign="${d.id}" style="background:#c62828;color:#fff;font-size:1.2rem;padding:16px">Read and sign now</button></div>`).join('');
+}
+function signedDocsCard() {
+  const a = S.signedDocs || []; if (!a.length) return '';
+  return `<div class="card"><h2>Your documents</h2><p class="muted">Documents you have signed. Tap to open your copy.</p>
+    ${a.map(d => `<div class="slot"><span><b>${esc(d.title)}</b><span class="muted" style="display:block">Signed ${yDate(String(d.signed_at).slice(0, 10))}</span></span><button class="btn sm" data-sdoc="${esc(d.path)}">Open</button></div>`).join('')}</div>`;
+}
+function wireSignedDocs() {
+  document.querySelectorAll('[data-sdoc]').forEach(x => x.onclick = async () => {
+    const w = window.open('', '_blank');
+    const { data, error } = await db.storage.from('sign-docs').createSignedUrl(x.dataset.sdoc, 600);
+    if (error) { if (w) w.close(); return toast(errMsg(error), true); }
+    if (w) w.location = data.signedUrl; else location.href = data.signedUrl;
+  });
 }
 // find the "Participant Signature:" label on page 1 and put the signature on the line after it (PDF units, from the bottom-left)
 async function findSigSpot(pg, who = /participant/i) {
@@ -1192,6 +1206,9 @@ async function viewSign(doc) {
       const ascii = t => t.normalize('NFD').replace(/[^\x20-\x7e]/g, '');
       page.drawText(ascii(`Signed electronically by ${name}, ${when} (Waikato Interlocks app)`), { x: sp.x + 2, y: sp.y - 9, size: 5, font, color: rgb(0.3, 0.3, 0.3) });
       const out = await doc2.save();
+      if (!asInstaller) {   // keep a copy so it can be opened again from the Me tab (a failed save must not stop the signing)
+        try { await withTimeout(db.storage.from('sign-docs').upload(`${S.me.id}/signed/${doc.id}.pdf`, new Blob([out], { type: 'application/pdf' }), { contentType: 'application/pdf' }), 30000, 'Saving your copy'); } catch (e) {}
+      }
       const { data, error } = await withTimeout(db.rpc('sign_doc_submit', { p_id: doc.id, p_pdf_b64: toB64(out), p_name: name, p_sig_png: asInstaller ? sigB64 : null }), 45000, 'Sending');
       if (error) throw error;
       db.storage.from('sign-docs').remove([doc.file_path]).catch(() => {});
@@ -1524,11 +1541,12 @@ function viewMe() {
     <div class="card"><h2>Reminders</h2><p class="muted">We email you about your bookings and when your service is due.</p>
       <label class="chk"><input type="checkbox" id="smsOn" ${S.me.sms_reminders ? 'checked' : ''}> Also text me on the morning of each booking</label>
       ${S.me.email ? '' : '<p class="muted">We have no email for you, so we text you anyway.</p>'}</div>
+    ${signedDocsCard()}
     ${homeScreenCard(false)}
     <div class="card"><button class="btn ghost" id="out" style="margin-top:0">Sign out</button><p class="muted" style="text-align:center"><a href="../privacy/">Privacy policy</a></p></div>
-    <p class="muted" style="text-align:center;font-size:.75rem">build 2026-11-18 21:26 UTC</p>`;
+    <p class="muted" style="text-align:center;font-size:.75rem">build 2026-11-18 22:02 UTC</p>`;
   $('out').onclick = signOut;
-  wireHomeScreen();
+  wireHomeScreen(); wireSignedDocs();
   $('smsOn').onchange = async () => {
     const on = $('smsOn').checked; $('smsOn').disabled = true;
     const { error } = await db.rpc('set_sms_reminders', { p_on: on });
