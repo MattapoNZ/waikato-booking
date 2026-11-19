@@ -683,7 +683,7 @@ const estFor = s => removalEstimates(sessOf(s), S.bookings.filter(b => b.locatio
 const hmOf = v => { const [h, m] = String(v).split(':').map(Number); return h * 60 + m; };
 
 // ---------- state ----------
-const S = { view: 'run', date: null, sessions: [], bookings: [], sel: null, extras: [], custQ: '', custSel: null, customers: [], priceReqs: [], custFilter: 'all', credits: {}, useCredit: false, creditsOff: false };
+const S = { showFree: {}, view: 'run', date: null, sessions: [], bookings: [], sel: null, extras: [], custQ: '', custSel: null, customers: [], priceReqs: [], custFilter: 'all', credits: {}, useCredit: false, creditsOff: false };
 const PR = id => S.priceReqs.find(r => r.customer_id === id);
 async function loadPriceReqs() {
   const [pr, nu, eq] = await Promise.all([db.from('price_requests').select('*').eq('status', 'requested'), db.from('customers').select('id').eq('self_registered', true).limit(200), db.from('enquiries').select('id').eq('status', 'new').limit(200)]);
@@ -873,9 +873,11 @@ function renderRun() {
        ${(s.notes||[]).length?`<div class="alert" style="background:var(--warn-soft);color:var(--ink)">${esc(s.notes.join('; '))}</div>`:''}
        <div class="meter"><i style="width:${Math.round(bs.filter(b => !isBlock(b)).length/times.length*100)}%"></i></div>
        <div class="tablewrap"><table><thead><tr><th>Time</th><th>Customer</th><th class="d-only">Installed</th><th class="d-only">Service</th><th class="d-only">Price</th><th>Status</th></tr></thead><tbody>
-       ${times.map(t => row(t, bs.find(b => b.start_min === t))).join('')}
-       <tr><td colspan="6" class="label" style="padding-top:12px">Removals · ${rs.length} of ${s.removal_slots} · ≈ times move as services book, until approved and locked on the day</td></tr>
-       ${[...rs].sort((a, b) => rTime(a) - rTime(b)).map(b => row(0, b)).join('') || '<tr class="free"><td class="t"></td><td colspan="5">— none requested —</td></tr>'}
+       ${(() => { const used = times.filter(t => bs.find(b => b.start_min === t) || held(t)), nFree = times.length - used.length, open = !!S.showFree[s.location_id];
+         return (open ? times : used).map(t => row(t, bs.find(b => b.start_min === t))).join('')
+           + (nFree ? `<tr><td colspan="6" style="padding:6px 8px">${used.length || open ? '' : '<span class="empty">Nothing booked yet. </span>'}<button class="chip" data-showfree="${s.location_id}">${open ? 'Hide free times' : `Show ${nFree} free time${nFree > 1 ? 's' : ''}`}</button></td></tr>` : ''); })()}
+       ${rs.length ? `<tr><td colspan="6" class="label" style="padding-top:12px">Removals · ${rs.length} of ${s.removal_slots} · ≈ times move as services book, until approved and locked on the day</td></tr>
+       ${[...rs].sort((a, b) => rTime(a) - rTime(b)).map(b => row(0, b)).join('')}` : ''}
        ${ins.length ? `<tr><td colspan="6" class="label" style="padding-top:12px">Installs · after the session · ≈ times move as services book, locked on the morning</td></tr>${ins.map(({ b, t }) => `<tr class="row ${b.id===S.sel?'sel':''}" data-b="${b.id}"><td class="t">${b.details.locked ? '' : '≈ '}${fmtTime(t)}</td>
          <td><b>${esc(fullName(b.customer || {}))}</b> <span class="empty">· ${fmtDur(b.details.mins || 120)}${b.details.place ? ' · ' + esc(b.details.place) : ''}</span></td><td class="t d-only">${fmtTime(t)}–${fmtTime(t + (b.details.mins || 120))}</td>
          <td class="d-only">${esc(SVC(b.service_id).name)}</td><td class="t d-only">${money(b.price_cents/100)}</td><td><span class="pill p-${b.status === 'completed' ? 'completed' : b.details.locked ? 'confirmed' : 'pencilled'}">${b.status === 'completed' ? 'Paid' : b.details.locked ? 'Time locked' : 'Pencilled'}</span></td></tr>`).join('')}` : ''}
@@ -910,6 +912,7 @@ function renderRun() {
   document.querySelectorAll('[data-msg]').forEach(b => b.onclick = () => { renderMessage(b.dataset.msg); showSide(); });
   document.querySelectorAll('[data-inst]').forEach(b => b.onclick = () => { S.sel = null; renderAddBooking(b.dataset.inst, false, true); showSide(); });
   document.querySelectorAll('[data-sess]').forEach(b => b.onclick = () => { S.sel = null; renderSessionTools(b.dataset.sess); showSide(); });
+  document.querySelectorAll('[data-showfree]').forEach(b => b.onclick = () => { S.showFree[b.dataset.showfree] = !S.showFree[b.dataset.showfree]; renderRun(); });
   document.querySelectorAll('[data-free]').forEach(tr => tr.onclick = () => { const [l, t] = tr.dataset.free.split('|'); S.sel = null; renderSessionTools(l, +t); showSide(); });
   document.querySelector('.datebar [aria-pressed="true"]')?.scrollIntoView({ inline: 'center', block: 'nearest' });
   if (S.sel) showSide();
