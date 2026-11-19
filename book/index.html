@@ -852,16 +852,16 @@ async function signOut() { await db.auth.signOut(); S.me = null; renderLogin(); 
 // ---------- data ----------
 async function load() {
   const today = nzToday();
-  const [me, bk, av, rav, rt, rq, sd, sg, ts] = await withTimeout(Promise.all([
+  const [me, bk, av, rav, rt, rq, sd, sg, ts, co] = await withTimeout(Promise.all([
     db.rpc('my_profile'),
     db.from('bookings').select('*').gte('session_date', addDays(today, -60)).neq('status', 'cancelled').order('session_date'),
     db.rpc('my_availability', { p_kind: 'service' }),
     db.rpc('my_availability', { p_kind: 'removal' }),
     db.rpc('my_removal_times'),
     db.from('service_requests').select('*').order('created_at', { ascending: false }).limit(3),
-    db.rpc('my_sign_docs'), db.rpc('my_signed_docs'), db.rpc('my_training_status')]), 20000, 'Loading');
+    db.rpc('my_sign_docs'), db.rpc('my_signed_docs'), db.rpc('my_training_status'), db.rpc('my_callouts')]), 20000, 'Loading');
   const bad = [me, bk, av, rav, rt, rq].find(r => r.error); if (bad) throw bad.error;
-  S.me = me.data; S.signDocs = sd.error ? [] : (sd.data || []); S.signedDocs = sg.error ? [] : (sg.data || []); S.trainStatus = ts.error ? {} : (ts.data || {}); S.bookings = bk.data; S.rTimes = rt.data || []; S.requests = rq.data || [];
+  S.me = me.data; S.signDocs = sd.error ? [] : (sd.data || []); S.signedDocs = sg.error ? [] : (sg.data || []); S.trainStatus = ts.error ? {} : (ts.data || {}); S.callouts = co.error ? null : (co.data || []); S.bookings = bk.data; S.rTimes = rt.data || []; S.requests = rq.data || [];
   const byDay = (a, b) => (a.session_date + String(a.offered_min).padStart(4, '0')).localeCompare(b.session_date + String(b.offered_min).padStart(4, '0'));
   S.avail = (av.data || []).sort(byDay); S.rAvail = (rav.data || []).sort(byDay);
 }
@@ -1475,12 +1475,13 @@ function viewBook() {
     <div class="card"><h2>What for?</h2><div class="chips">${opts.map(([k, n]) => `<button class="chip" aria-pressed="${S.svc===k}" data-svc="${k}">${n}</button>`).join('')}</div>
       <p class="muted">${WHY[S.svc] || 'Only book a reset by itself if you are not due a service.'}</p></div>
     <div class="card"><h2>Where and when</h2><div class="chips"><button class="chip" aria-pressed="${S.loc==='all'}" data-loc="all">All</button>${locs.map(l => `<button class="chip" aria-pressed="${S.loc===l}" data-loc="${l}">${esc(LOC(l).name)}</button>`).join('')}</div>
-      <p class="muted">Each day has one time: the next free spot.</p><div id="rows">${rows.map((r, i) => { const s = svcFor(r.session_date);
+      <p class="muted">Each day has one time: the next free spot. Can't get to a session? <a href="#" id="goCallout">Ask for a call-out</a> (from $60 extra).</p><div id="rows">${rows.map((r, i) => { const s = svcFor(r.session_date);
         return `<div class="slot"><span><b>${shortDate(r.session_date)} · <span class="t">${fmtTime(r.offered_min)}</span></b><span class="muted">${esc(LOC(r.location_id).name)}${s ? ' · ' + money(s.price) : ''}${(r.notes||[]).length ? ' · ' + esc(r.notes.join('; ')) : ''}</span>${r.request ? `<span class="muted" style="color:var(--warn);display:block">${r.request_only ? 'This day is by request only. Matt confirms it.' : 'Online bookings have closed for this session. You can request it.'}</span>` : ''}</span>
           <button class="btn sm${r.request ? ' ghost' : ''}" data-pick="${i}">${r.request ? 'Request' : 'Book'}</button></div>`; }).join('') || `<p>No times free in the next 3 weeks. Text Matt on ${MATT}.</p>`}</div></div><div id="conf"></div>`;
   document.querySelectorAll('[data-svc]').forEach(b => b.onclick = () => { S.svc = b.dataset.svc; viewBook(); });
   document.querySelectorAll('[data-loc]').forEach(b => b.onclick = () => { S.loc = b.dataset.loc; viewBook(); });
   document.querySelectorAll('[data-pick]').forEach(b => b.onclick = () => confirmBook(rows[+b.dataset.pick], svcFor));
+  if ($('goCallout')) $('goCallout').onclick = e => { e.preventDefault(); S.tab = 'more'; render(); setTimeout(() => ($('coCard') || $('coCancel'))?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 80); };
   wireVeh();
   wireCancel();
 }
@@ -1527,6 +1528,44 @@ function confirmBook(r, svcFor) {
   };
 }
 
+// ---------- call-out request: Matt comes to you. A request only; he confirms the time and the price. ----------
+function calloutHtml() {
+  if (!S.callouts) return '';   // not switched on yet
+  const open = S.callouts.find(x => x.status === 'requested'), last = S.callouts.find(x => x.status === 'accepted' || x.status === 'declined');
+  const about = `<p class="muted">Can't get to a session? Matt can come to you. <b>Call-outs cost extra, from $60</b> on top of the service itself. The price depends on where you are and when he can fit it in. Outside Hamilton, Cambridge or Morrinsville costs more.</p>
+      <p class="muted">He fits call-outs around the times he is already out on the road, mostly Tuesdays and Thursdays. Mondays, Wednesdays and Fridays are harder, but you can still ask.</p>`;
+  const lastBox = !last ? '' : `<div class="note ${last.status === 'accepted' ? 'ok' : 'bad'}"><b>${last.status === 'accepted' ? 'Matt can do your call-out' : 'Matt could not fit your call-out in'}</b> (${esc(last.address)})${last.reply ? `<br>${esc(last.reply)}` : ''}</div>`;
+  if (open) return `<h1>Call-out</h1><div class="card"><h2>Call-out requested</h2><p><b>${esc(open.address)}</b></p><p>${esc(open.reason)}</p><p class="muted">When suits: ${esc(open.when_suits)}</p>
+      <p><span class="pill warn">Waiting for Matt</span></p><div class="note"><b>Not booked yet.</b> Matt will get back to you with a time and the price.</div>
+      <button class="btn ghost" id="coCancel">Withdraw this request</button></div>`;
+  return `<h1>Call-out</h1>${lastBox}<div class="card" id="coCard"><h2>Ask Matt to come to you</h2>${about}
+      <form id="coF"><label class="f" for="coAddr">Where will the vehicle be? (full address, with the town)</label><input id="coAddr" autocomplete="street-address" maxlength="200" placeholder="12 Example Road, Te Awamutu">
+        <label class="f" for="coWhy">What do you need done?</label><textarea id="coWhy" rows="2" maxlength="500" placeholder="e.g. monthly service, the car won't start"></textarea>
+        <label class="f" for="coWhen">What days and times suit?</label><input id="coWhen" maxlength="200" placeholder="e.g. Tuesday or Thursday after 1pm">
+        <div class="note"><b>This is a request, not a booking.</b> Matt will reply with a time and the price before anything is locked in.</div>
+        <div id="coErr" class="note bad" hidden></div><button class="btn brand">Send call-out request</button></form></div>`;
+}
+function wireCallout() {
+  if ($('coCancel')) $('coCancel').onclick = async () => {
+    const b = $('coCancel'); if (b.dataset.sure !== '1') { b.dataset.sure = '1'; b.textContent = 'Tap again to withdraw'; return; }
+    b.disabled = true; const { error } = await db.rpc('cancel_my_callout', { p_id: S.callouts.find(x => x.status === 'requested').id });
+    if (error) { b.disabled = false; return toast(errMsg(error), true); }
+    reload('Request withdrawn');
+  };
+  if ($('coF')) $('coF').onsubmit = async ev => {
+    ev.preventDefault();
+    const p = { address: $('coAddr').value.trim(), reason: $('coWhy').value.trim(), when: $('coWhen').value.trim() };
+    const say = m => { $('coErr').textContent = m; $('coErr').hidden = false; };
+    if (p.address.length < 8) return say('Enter the full address, with the town.');
+    if (p.reason.length < 3) return say('Tell Matt what you need done.');
+    if (p.when.length < 2) return say('Tell Matt what days or times suit.');
+    const btn = $('coF').querySelector('button'); btn.disabled = true;
+    const { error } = await db.rpc('request_callout', { p });
+    if (error) { btn.disabled = false; return say(errMsg(error)); }
+    reload('Request sent. Matt will be in touch with a time and price.');
+  };
+}
+
 // ---------- removal + changeover ----------
 function viewMore() {
   const rm = live('removal'), today = nzToday(), e = eng(), d = customerDates(e, today), req = S.requests.find(x => x.status === 'requested' || x.status === 'accepted');
@@ -1549,7 +1588,9 @@ function viewMore() {
         <div><label class="f" for="vFuel">Fuel</label><select id="vFuel"><option value="">Choose…</option><option value="petrol">Petrol</option><option value="diesel">Diesel</option><option value="hybrid">Hybrid</option><option value="ev">Electric</option></select></div></div>
         <label class="f" for="vAddr">Where will the vehicle be?</label><input id="vAddr" autocomplete="street-address" placeholder="Address">
         <label class="f" for="vWhen">What day and time suits?</label><input id="vWhen" placeholder="e.g. Friday morning">
-        <div id="chErr" class="note bad" hidden></div><button class="btn brand">Send request</button></form></div>`}`;
+        <div id="chErr" class="note bad" hidden></div><button class="btn brand">Send request</button></form></div>`}
+    ${calloutHtml()}`;
+  wireCallout();
   wireCancel();
   document.querySelectorAll('[data-rpick]').forEach(b => b.onclick = () => confirmRemoval(S.rAvail[+b.dataset.rpick]));
   document.querySelectorAll('[data-rloc]').forEach(b => b.onclick = () => { S.loc = b.dataset.rloc; viewMore(); });
@@ -1634,7 +1675,7 @@ function viewMe() {
     ${signedDocsCard()}
     ${homeScreenCard(false)}
     <div class="card"><button class="btn ghost" id="out" style="margin-top:0">Sign out</button><p class="muted" style="text-align:center"><a href="../privacy/">Privacy policy</a></p></div>
-    <p class="muted" style="text-align:center;font-size:.75rem">build 2026-11-18 23:59 UTC</p>`;
+    <p class="muted" style="text-align:center;font-size:.75rem">build 2026-11-19 19:43 UTC</p>`;
   $('out').onclick = signOut;
   wireHomeScreen(); wireSignedDocs();
   $('smsOn').onchange = async () => {
