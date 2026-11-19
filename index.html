@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Waikato Interlocks — Run sheet</title>
 <meta name="theme-color" content="#1f4d5c">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://yimjmbarxnmakpswbrhz.supabase.co; connect-src 'self' https://yimjmbarxnmakpswbrhz.supabase.co wss://yimjmbarxnmakpswbrhz.supabase.co; manifest-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://yimjmbarxnmakpswbrhz.supabase.co; connect-src 'self' https://yimjmbarxnmakpswbrhz.supabase.co wss://yimjmbarxnmakpswbrhz.supabase.co https://nominatim.openstreetmap.org https://router.project-osrm.org; manifest-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'">
 <meta name="referrer" content="strict-origin">
 <script>if (top !== self) { try { top.location = self.location.href; } catch (e) { document.documentElement.hidden = true; } }</script>
 <link rel="manifest" href="manifest.webmanifest">
@@ -686,9 +686,10 @@ const hmOf = v => { const [h, m] = String(v).split(':').map(Number); return h * 
 const S = { showFree: {}, view: 'run', date: null, sessions: [], bookings: [], sel: null, extras: [], custQ: '', custSel: null, customers: [], priceReqs: [], custFilter: 'all', credits: {}, useCredit: false, creditsOff: false };
 const PR = id => S.priceReqs.find(r => r.customer_id === id);
 async function loadPriceReqs() {
-  const [pr, nu, eq] = await Promise.all([db.from('price_requests').select('*').eq('status', 'requested'), db.from('customers').select('id').eq('self_registered', true).limit(200), db.from('enquiries').select('id').eq('status', 'new').limit(200)]);
-  S.priceReqs = pr.data || []; S.enqCount = (eq.data || []).length;
-  const todo = new Set([...S.priceReqs.map(r => r.customer_id), ...(nu.data || []).map(c => c.id)]).size + S.enqCount;
+  const [pr, nu, eq, co] = await Promise.all([db.from('price_requests').select('*').eq('status', 'requested'), db.from('customers').select('id').eq('self_registered', true).limit(200), db.from('enquiries').select('id').eq('status', 'new').limit(200),
+    db.from('callout_requests').select('id').eq('status', 'requested').limit(200)]);
+  S.priceReqs = pr.data || []; S.enqCount = (eq.data || []).length; S.coCount = co.error ? 0 : (co.data || []).length;
+  const todo = new Set([...S.priceReqs.map(r => r.customer_id), ...(nu.data || []).map(c => c.id)]).size + S.enqCount + S.coCount;
   if (todo !== S.todo) { S.todo = todo; const b = document.querySelector('[data-v="cust"]'); if (b) b.innerHTML = IC.cust + 'Customers' + (todo ? `<span class="n">${todo}</span>` : ''); }
 }
 
@@ -1543,13 +1544,14 @@ async function renderSchedule() {
 }
 
 async function renderCustomers() {
-  const F = [['all', 'All'], ['attention', 'Needs a look'], ['quiet', 'No booking in 5 weeks'], ['enq', 'New enquiries' + (S.enqCount ? ' (' + S.enqCount + ')' : '')]];
+  const F = [['all', 'All'], ['attention', 'Needs a look'], ['quiet', 'No booking in 5 weeks'], ['enq', 'New enquiries' + (S.enqCount ? ' (' + S.enqCount + ')' : '')], ['callout', 'Call-outs' + (S.coCount ? ' (' + S.coCount + ')' : '')]];
   $('body').innerHTML = `<div class="layout"><div class="panel"><input id="cq" placeholder="Search name, mobile, email or rego" style="width:100%" value="${esc(S.custQ)}" autocomplete="off">
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0">${F.map(([k, n]) => `<button class="chip" aria-pressed="${S.custFilter===k}" data-cf="${k}">${n}</button>`).join('')}</div>
     <div class="empty" id="ccount"></div><div class="list" id="clist"></div></div>
     <aside class="panel side" id="cside"><p class="empty">Pick a customer to edit their install date, subsidy and theft protection.</p></aside></div>`;
   const load = async () => {
     if (S.custFilter === 'enq') return loadEnquiries();
+    if (S.custFilter === 'callout') return loadCallouts();
     const q = $('cq').value.trim().replace(/[,()%]/g, ' '); S.custQ = q;
     await loadPriceReqs();
     let req = db.from('customers').select('*').order('first_name').limit(S.custFilter === 'quiet' ? 1000 : 100);
@@ -1569,6 +1571,84 @@ async function renderCustomers() {
   };
   document.querySelectorAll('[data-cf]').forEach(b => b.onclick = () => { S.custFilter = b.dataset.cf; renderCustomers(); });
   let t; $('cq').oninput = () => { clearTimeout(t); t = setTimeout(load, 250); }; load();
+}
+// ---------- call-out requests (customers ask in the app for Matt to come to them) ----------
+// Session spots, for the driving distance to the call-out address.
+const SPOTS = [['cambridge', -37.8808164, 175.4632416], ['hamilton', -37.7750739, 175.2536215], ['morrinsville', -37.6503181, 175.5395813], ['kopu', -37.1850453, 175.5655817]];
+const CO_ST = { requested: 'New', accepted: 'Accepted', declined: 'Declined', done: 'Done', cancelled: 'Withdrawn' };
+const crowKm = (a, b, c, d) => { const R = 6371, r = x => x * Math.PI / 180, h = Math.sin(r(c - a) / 2) ** 2 + Math.cos(r(a)) * Math.cos(r(c)) * Math.sin(r(d - b) / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(h)); };
+// Find the address on the map (OpenStreetMap), then get road km and minutes from each session spot (OSRM).
+// If the road lookup fails it falls back to straight-line km and says so.
+async function calloutDistances(address) {
+  const g = await (await fetch('https://nominatim.openstreetmap.org/search?format=jsonv2&countrycodes=nz&limit=1&q=' + encodeURIComponent(address))).json();
+  if (!g || !g.length) throw new Error('Could not find that address on the map');
+  const lat = +g[0].lat, lng = +g[0].lon, out = { lat, lng, found: g[0].display_name, mode: 'road', km: {}, mins: {} };
+  try {
+    const pts = [[lng, lat], ...SPOTS.map(([, a, b]) => [b, a])].map(x => x.join(',')).join(';');
+    const r = await (await fetch(`https://router.project-osrm.org/table/v1/driving/${pts}?destinations=0&annotations=distance,duration`)).json();
+    if (r.code !== 'Ok') throw new Error(r.code);
+    SPOTS.forEach(([id], i) => { const m = r.distances[i + 1][0]; if (m == null) throw new Error('no route'); out.km[id] = Math.round(m / 100) / 10; out.mins[id] = Math.round(r.durations[i + 1][0] / 60); });
+  } catch (e) {
+    out.mode = 'straight'; out.mins = {};
+    SPOTS.forEach(([id, a, b]) => { out.km[id] = Math.round(crowKm(lat, lng, a, b) * 10) / 10; });
+  }
+  return out;
+}
+async function loadCallouts() {
+  const { data, error } = await db.from('callout_requests').select('*, customer:customers(id,first_name,last_name,mobile,email,vehicle)').neq('status', 'cancelled').order('created_at', { ascending: false }).limit(60);
+  if (error) { $('ccount').textContent = /callout_requests/.test(errMsg(error)) ? 'Call-out requests are not switched on yet.' : errMsg(error); $('clist').innerHTML = ''; return; }
+  S.callouts = data;
+  $('ccount').textContent = 'Call-outs customers have asked for in the app. New ones are also emailed to you.';
+  $('clist').innerHTML = data.map(r => `<div class="item" data-co="${r.id}"><span><b>${esc(fullName(r.customer || {}))}</b> <span class="pill p-${r.status === 'requested' ? 'pencilled' : r.status === 'declined' ? 'cancelled' : 'completed'}">${CO_ST[r.status]}</span><br><span class="empty">${esc(r.address)}</span></span>
+    <span class="empty" style="text-align:right">${billDay(r.created_at)}${r.distances?.km ? '<br>' + (n => `${n[1]} km from ${LOC(n[0])}`)(Object.entries(r.distances.km).sort((a, b) => a[1] - b[1])[0]) : ''}</span></div>`).join('') || '<div class="empty">No call-out requests</div>';
+  $('clist').querySelectorAll('[data-co]').forEach(it => it.onclick = () => { editCallout(S.callouts.find(r => r.id === it.dataset.co)); if (matchMedia('(max-width:960px)').matches) setTimeout(() => $('cside')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); });
+}
+function calloutDistHtml(r) {
+  const d = r.distances; if (!d || !d.km) return '';
+  const rows = Object.entries(d.km).sort((a, b) => a[1] - b[1]), near = rows[0], rate = parseFloat(lsGet('wi_co_rate'));
+  const gm = id => `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(locations.find(l => l.id === id).address)}&destination=${encodeURIComponent(r.address)}`;
+  return `${d.mode === 'straight' ? '<div class="alert">The road lookup failed, so these are <b>straight-line</b> km. Real driving distance will be longer. Tap a row to check it in Google Maps.</div>' : ''}
+    ${rows.map(([id, km], i) => `<a class="co-line" style="text-decoration:none;color:inherit;${i ? '' : 'font-weight:700;background:var(--ok-soft);padding:6px;border-radius:6px'}" href="${esc(gm(id))}" target="_blank" rel="noopener"><span>${i ? '' : 'Nearest: '}${esc(LOC(id))}</span><span class="t">${km} km${d.mins?.[id] != null ? ' · ' + d.mins[id] + ' min' : ''}</span></a>`).join('')}
+    <div class="empty" style="margin-top:4px">${d.mode === 'road' ? 'Driving distance, one way.' : ''} Found as: ${esc(d.found || '')}</div>
+    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:8px"><span class="label">Your rate</span> $<input id="coRt" type="number" inputmode="decimal" step="0.01" min="0" value="${esc(lsGet('wi_co_rate'))}" placeholder="per km" style="width:80px"> per km
+      <span class="empty">(saved on this device only)</span></div>
+    ${rate > 0 ? `<div class="alert" style="background:var(--bg);color:var(--ink)"><b>Price guide from ${esc(LOC(near[0]))}:</b> minimum ${money(60)}.<br>With km one way: ${money(60)} + ${near[1]} × ${money(rate)} = <b>${money(60 + near[1] * rate)}</b><br>With km both ways: <b>${money(60 + near[1] * 2 * rate)}</b><div class="empty">In town and on a session day, the minimum applies.</div></div>` : '<div class="empty">Enter your per-km rate to see a price guide.</div>'}`;
+}
+async function editCallout(r) {
+  const c = r.customer || {}, open = r.status === 'requested';
+  $('cside').innerHTML = `<h2>Call-out: ${esc(fullName(c))}</h2><div class="empty">Asked ${billDay(r.created_at)} · <span class="pill p-${open ? 'pencilled' : 'completed'}">${CO_ST[r.status]}</span></div>
+    <div class="facts"><div class="fact"><div class="label">Mobile</div><div class="v">${c.mobile ? `<a href="tel:${esc(c.mobile)}">${esc(c.mobile)}</a>` : '—'}</div></div><div class="fact"><div class="label">Vehicle</div><div class="v">${esc(c.vehicle || '—')}</div></div></div>
+    <div class="label" style="margin-top:10px">Where</div><div><b>${esc(r.address)}</b> · <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(r.address)}" target="_blank" rel="noopener">map</a></div>
+    <div class="label" style="margin-top:8px">What for</div><div>${esc(r.reason)}</div>
+    <div class="label" style="margin-top:8px">When suits</div><div>${esc(r.when_suits)}</div>
+    <div class="label" style="margin-top:12px">Distance from your session spots</div><div id="coDist">${r.distances ? calloutDistHtml(r) : '<div class="empty">Working out the driving distance…</div>'}</div>
+    <button class="chip" id="coRedo" style="margin-top:6px">Work out the distance again</button>
+    ${r.reply ? `<div class="label" style="margin-top:12px">What you told them</div><div class="alert" style="background:var(--bg);color:var(--ink)">${esc(r.reply)}</div>` : ''}
+    <div class="label" style="margin-top:12px">Your reply (time and price)</div>
+    <textarea id="coMsg" rows="3" maxlength="600" style="width:100%" placeholder="e.g. Tuesday about 1:30pm, after my Hamilton session. The call-out fee is $__ on top of the service."></textarea>
+    <div class="empty">Sent by email, or a text if they have no email. They also see it in the app.</div>
+    <div class="grid2" style="margin-top:6px"><button class="btn brand" data-cod="accepted">Accept and send</button><button class="btn ghost" data-cod="declined">Decline and send</button></div>
+    <div class="grid2" style="margin-top:6px"><button class="btn ghost" data-cod="done">Mark done</button><button class="btn ghost" id="coCust">Open customer</button></div>`;
+  const wireRate = () => { if ($('coRt')) $('coRt').onchange = () => { lsSet('wi_co_rate', $('coRt').value); $('coDist').innerHTML = calloutDistHtml(r); wireRate(); }; };
+  const work = async () => {
+    $('coDist').innerHTML = '<div class="empty">Working out the driving distance…</div>';
+    try {
+      r.distances = await calloutDistances(r.address);
+      await db.from('callout_requests').update({ distances: r.distances }).eq('id', r.id);
+      $('coDist').innerHTML = calloutDistHtml(r); wireRate();
+    } catch (e) { $('coDist').innerHTML = `<div class="alert">${esc(errMsg(e))}. Check the address, or use the map link above.</div>`; }
+  };
+  wireRate(); $('coRedo').onclick = work; if (!r.distances) work();
+  $('coCust').onclick = async () => { const { data } = await db.from('customers').select('*').eq('id', r.customer_id).single(); if (data) editCustomer(data); };
+  document.querySelectorAll('[data-cod]').forEach(b => b.onclick = async () => {
+    const st = b.dataset.cod, msg = $('coMsg').value.trim();
+    if (st === 'accepted' && msg.length < 5) return toast('Add the time and price so they know what to expect', true);
+    b.disabled = true;
+    const { data, error } = await db.rpc('callout_decide', { p_id: r.id, p_status: st, p_message: msg || null });
+    if (error) { b.disabled = false; return toast(errMsg(error), true); }
+    toast(st === 'done' ? 'Marked done' : (st === 'accepted' ? 'Accepted' : 'Declined') + (data === 'email' ? ' and emailed to them' : data === 'sms' ? ' and texted to them' : '. They have no email or mobile, so tell them'), st !== 'done' && data === 'none');
+    await loadPriceReqs(); renderCustomers();
+  });
 }
 // ---------- new customer enquiries (from the form link) ----------
 const ENQ_LINK = 'https://book.waikatointerlocks.co.nz/book/?new';
