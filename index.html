@@ -563,7 +563,7 @@ const services = [
 
   // ---- Dräger Schedule of Fees and Charges, DSP-ITL-605 Rev:4, effective 16 Apr 2026 (NZD incl GST) ----
   // Staff-only charges, added at checkout. Not bookable by customers.
-  { id: 'mouthpiece', name: 'Mouthpieces', price: 20, group: 'fee' },   // sold at the counter, not a Dräger fee
+  { id: 'mouthpiece', name: 'Mouthpieces', price: 25, group: 'fee' },   // sold at the counter, not a Dräger fee
   { id: 'reinst', name: 'Reinstallation — standard vehicle', price: 200, group: 'fee' },
   { id: 'reinst-cx', name: 'Reinstallation — complex vehicle', price: 300, group: 'fee' },
   { id: 'labour', name: 'Additional labour (per hour)', price: 100, group: 'fee' },
@@ -1199,12 +1199,12 @@ function renderSide() {
       <div class="grid2"><button class="btn brand" id="apRem">Approve removal</button><button class="btn ghost" data-st="cancelled">Decline</button></div>` : ''}
     ${fl && b.approved_at ? `<div class="alert" style="background:var(--warn-soft);color:var(--ink)">Approved. The time is still approximate and locks in on the morning of the session.</div>
       <div class="grid2"><button class="btn" id="lockRem">Lock time now</button><button class="btn ghost" data-st="cancelled">Decline</button></div>` : ''}
-    ${!fl && b.status === 'pencilled' ? `${b.kind === 'service' ? '<div class="alert" style="background:var(--warn-soft);color:var(--ink)">Late request, made after online bookings closed. The customer has been told not to come until you confirm. They get an email either way.</div>' : ''}<div class="grid2"><button class="btn brand" data-st="confirmed">${b.kind === 'removal' ? 'Accept removal' : 'Confirm request'}</button><button class="btn ghost" data-st="cancelled">Decline</button></div>` : ''}
+    ${!fl && b.status === 'pencilled' ? `${b.kind === 'service' ? '<div class="alert" style="background:var(--warn-soft);color:var(--ink)">Late request, made after online bookings closed. The customer has been told not to come until you confirm. They get an email either way.</div>' : ''}${b.kind === 'service' ? confirmTimePick(b, sRow) : ''}<div class="grid2"><button class="btn brand" ${b.kind === 'service' ? 'id="cfGo"' : 'data-st="confirmed"'}>${b.kind === 'removal' ? 'Accept removal' : 'Confirm request'}</button><button class="btn ghost" data-st="cancelled">Decline</button></div>` : ''}
     <div style="margin-top:10px">${b.details?.blank && !b.price_cents ? '' : `<div class="co-line"><span>${esc(mainName(b))}${b.details?.price_note ? `<br><span class="empty">Changed from ${money((b.details.orig_price_cents ?? 0) / 100)} — ${esc(b.details.price_note)}</span>` : ''}</span>
         <span class="t">${money(b.price_cents/100)}${paid ? '' : ' <button class="chip" id="chgPrice" style="padding:0 8px">Edit price</button>'}</span></div><div id="priceBox"></div>`}
       ${S.extras.map((x, i) => `<div class="co-line"><span>${esc(xName(x))}${paid ? '' : ` <button class="chip" data-rx="${i}" title="Remove" style="padding:0 7px">×</button>`}</span><span class="t">${money(xPrice(x))}</span></div>`).join('')}
       ${paid && b.details?.credit_used_cents ? `<div class="co-line credit"><span>Account credit used</span><span class="t">−${money(b.details.credit_used_cents / 100)}</span></div>` : ''}
-      ${paid ? '' : `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"><button class="chip" data-x="vr">+ Violation reset $100</button><button class="chip" data-x="vr-disc">+ Mech/battery $60</button><button class="chip" data-x="mouthpiece">+ Mouthpieces $20</button>${S.extras.length?'<button class="chip" id="clrX">Clear</button>':''}</div>
+      ${paid ? '' : `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"><button class="chip" data-x="vr">+ Violation reset $100</button><button class="chip" data-x="vr-disc">+ Mech/battery $60</button><button class="chip" data-x="mouthpiece">+ Mouthpieces $25</button>${S.extras.length?'<button class="chip" id="clrX">Clear</button>':''}</div>
       <div style="display:flex;gap:6px;margin-top:6px"><select id="moreFee" style="flex:1"><option value="">More Dräger charges…</option>
         <optgroup label="Services">${services.filter(x=>['service','violation','removal','install','changeover'].includes(x.group)).map(x=>`<option value="${x.id}">${esc(x.name)} — ${money(x.price)}</option>`).join('')}</optgroup>
         <optgroup label="Fees">${services.filter(x=>x.group==='fee').map(x=>`<option value="${x.id}">${esc(x.name)} — ${money(x.price)}</option>`).join('')}</optgroup>
@@ -1270,6 +1270,12 @@ function renderSide() {
   if ($('addCo')) $('addCo').onclick = () => addLine('Call-out', $('coKm').value, $('coRate').value, 'wi_co_rate');
   if ($('addLb')) $('addLb').onclick = () => addLine($('lbN').value, $('lbQ').value, $('lbP').value, 'wi_lb_rate');
   el.querySelectorAll('[data-st]').forEach(x => x.onclick = () => setStatus(b, x.dataset.st));
+  if ($('cfGo')) $('cfGo').onclick = async () => {
+    const t = +$('cfT').value; $('cfGo').disabled = true;
+    const { error } = await db.from('bookings').update({ status: 'confirmed', start_min: t }).eq('id', b.id);
+    if (error) { $('cfGo').disabled = false; return toast(/duplicate|unique/i.test(errMsg(error)) ? 'Someone already has that time — pick another' : errMsg(error), true); }
+    toast(t === b.start_min ? 'Confirmed' : `Confirmed for ${fmtTime(t)}`); await loadBookings(); renderRun();
+  };
   if ($('apRem')) $('apRem').onclick = async () => {
     const { error } = await db.rpc('approve_removal', { p_booking: b.id }); if (error) return toast(errMsg(error), true);
     toast(b.session_date === nzToday() ? 'Approved — time locked in' : 'Approved — time locks on the morning'); await loadBookings(); renderRun();
@@ -1437,6 +1443,15 @@ async function undoPayment(b) {
   toast('Sale cancelled — redo it below'); await loadBookings(); renderRun();
 }
 
+// Confirming a request: pick the time they get (defaults to what they asked for). Taken times can't be picked.
+function confirmTimePick(b, sRow) {
+  const st = sRow ? sRow.start_min : b.start_min, en = sRow ? sRow.end_min : b.start_min + 5;
+  const taken = new Set(S.bookings.filter(x => x.id !== b.id && x.location_id === b.location_id && x.status !== 'cancelled' && x.time_locked !== false && !isInstall(x)).map(x => x.start_min));
+  const times = []; for (let t = st; t < en; t += 5) times.push(t);
+  if (!times.includes(b.start_min)) times.push(b.start_min); times.sort((x, y) => x - y);
+  return `<label class="label" for="cfT" style="display:block;margin-top:8px">Time they get</label>
+    <select id="cfT" style="width:100%;margin-bottom:6px">${times.map(t => `<option value="${t}" ${t === b.start_min ? 'selected' : ''} ${taken.has(t) ? 'disabled' : ''}>${fmtTime(t)}${t === b.start_min ? ' (asked for)' : taken.has(t) ? ' — taken' : ''}</option>`).join('')}</select>`;
+}
 async function setStatus(b, st) {
   const { error } = await db.from('bookings').update({ status: st, ...(st === 'cancelled' ? { cancelled_at: new Date().toISOString() } : {}) }).eq('id', b.id);
   if (error) return toast(errMsg(error), true);
