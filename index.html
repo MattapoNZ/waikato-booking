@@ -103,6 +103,7 @@ tr.free td{color:var(--muted)}
 .form .full{grid-column:1/-1}
 .list .item{display:flex;justify-content:space-between;gap:10px;padding:9px 4px;border-bottom:1px solid var(--line);cursor:pointer;align-items:center}
 .list .item:hover{background:var(--bg)}
+details.fold>summary::-webkit-details-marker{display:none}
 </style>
 </head>
 <body>
@@ -847,15 +848,26 @@ function profileFlag0(c, b) {
 
 function renderRun() {
   const dates = [...new Set(S.sessions.map(s => s.session_date))];
-  const day = S.sessions.filter(s => s.session_date === S.date);
+  const realDay = S.sessions.filter(s => s.session_date === S.date);
+  // sales entered for a day/location with no session (e.g. a mobile install, or a sale added later) still show
+  const day = [...realDay, ...[...new Set(S.bookings.map(b => b.location_id))].filter(l => !realDay.some(s => s.location_id === l))
+    .map(l => ({ location_id: l, session_date: S.date, _virtual: true }))];
   const STATUS = { confirmed:'Confirmed', pencilled:'Pencilled', arrived:'Arrived', completed:'Paid', no_show:'No-show' };
   if (!dates.includes(S.date)) { dates.push(S.date); dates.sort(); }
   $('body').innerHTML = `<div class="datebar"><label class="pick" title="Go to any day">${IC.day}Other day <input type="date" id="anyDay" value="${S.date}" aria-label="Go to any day"></label>${dates.map(d => `<button class="chip${d===nzToday()?' today':''}" aria-pressed="${d===S.date}" data-d="${d}">${d===nzToday()?'Today':longDate(d)}</button>`).join('')}</div>
    <div class="layout"><div class="panel">${day.length ? day.map(s => {
+     if (s._virtual) {
+       const vb = S.bookings.filter(b => b.location_id === s.location_id).sort((a, b) => a.start_min - b.start_min);
+       const vt = vb.reduce((a, b) => a + b.payments.reduce((x, p) => x + p.amount_cents, 0), 0) / 100;
+       return `<div class="session loc-${esc(s.location_id)}"><div class="s-head"><h3>${esc(LOC(s.location_id))} <span class="empty" style="font-size:.9rem">no session · sales only</span></h3><span class="empty">${vb.length} sale${vb.length > 1 ? 's' : ''} · taken ${money(vt)}</span></div>
+         <div class="tablewrap"><table><thead><tr><th>Time</th><th>Customer</th><th class="d-only">Service</th><th class="d-only">Price</th><th>Status</th></tr></thead><tbody>
+         ${vb.map(b => `<tr class="row ${b.id===S.sel?'sel':''}" data-b="${b.id}"><td class="t">${fmtTime(b.start_min)}</td><td><b>${esc(fullName(b.customer || {}))}</b></td><td class="d-only">${esc(mainName(b))}</td><td class="t d-only">${money(b.price_cents/100)}</td><td><span class="pill p-${b.status}">${STATUS[b.status] || b.status}</span></td></tr>`).join('')}
+         </tbody></table></div><div style="margin-top:8px"><button class="btn" data-walk="${s.location_id}">+ Another sale here</button></div></div>`;
+     }
      const sess = { start: s.start_min, end: s.end_min, slotMins: s.slot_mins, removalSlots: s.removal_slots, removalMins: s.removal_mins };
      const bs = S.bookings.filter(b => b.location_id === s.location_id && b.kind === 'service' && b.source !== 'walkin' && !isInstall(b));
      const ins = S.bookings.filter(b => b.location_id === s.location_id && isInstall(b)).map(b => ({ b, t: installEstimate(b, s) })).sort((x, y) => x.t - y.t);
-     const ws = S.bookings.filter(b => b.location_id === s.location_id && b.source === 'walkin');
+     const ws = S.bookings.filter(b => b.location_id === s.location_id && b.source === 'walkin' && !isInstall(b));
      const rs = S.bookings.filter(b => b.location_id === s.location_id && b.kind === 'removal');   // floating + locked
      const taken = S.bookings.filter(b => b.location_id === s.location_id).reduce((a, b) => a + b.payments.reduce((x, p) => x + p.amount_cents, 0), 0) / 100;
      const est = estFor(s);
@@ -890,11 +902,12 @@ function renderRun() {
        </tbody></table></div>
        <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap"><button class="btn" data-walk="${s.location_id}">+ Walk-in sale</button><button class="btn ghost" data-add="${s.location_id}">+ Add booking</button><button class="btn ghost" data-inst="${s.location_id}">+ Install after</button><button class="btn ghost" data-msg="${s.location_id}">Text this session</button>
          <button class="btn ghost" data-sess="${s.location_id}">Hours / block / close</button></div></div>`;
-   }).join('') : `<h3>${longDate(S.date)}</h3><div class="empty">No session on this day.</div>`}
-     <details style="margin-top:14px" ${day.length ? '' : 'open'}><summary class="label" style="cursor:pointer">+ Add a session on ${longDate(S.date)}</summary>
+   }).join('') : ''}
+     ${realDay.length ? '' : `<h3 style="margin-top:12px">${longDate(S.date)}</h3><div class="empty">No session on this day.</div>`}
+     <details style="margin-top:14px" ${realDay.length ? '' : 'open'}><summary class="label" style="cursor:pointer">+ Add a session on ${longDate(S.date)}</summary>
        <div class="empty" style="margin:6px 0">For a day you don't normally run. Once it is added you can book people in, add installs and walk-ins, and take payment as usual.</div>
        <form id="adF" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
-         <label class="label">Location<br><select id="adL">${locations.filter(l => !day.some(s => s.location_id === l.id)).map(l => `<option value="${l.id}">${esc(l.name)}</option>`).join('')}</select></label>
+         <label class="label">Location<br><select id="adL">${locations.filter(l => !realDay.some(s => s.location_id === l.id)).map(l => `<option value="${l.id}">${esc(l.name)}</option>`).join('')}</select></label>
          <label class="label">Start<br><input id="adS" type="time" step="300" value="09:00"></label>
          <label class="label">Finish<br><input id="adE" type="time" step="300" value="10:00"></label>
          <button class="btn">Add session</button></form>
@@ -1358,24 +1371,55 @@ async function finishGcalConnect() {
   const { error } = await db.rpc('gcal_connect', { p_code: code, p_state: state });
   toast(error ? errMsg(error) : 'Google Calendar connected. Bookings will appear there shortly.', !!error);
 }
+// Messages tab: every panel folds away (remembered per device) and one search bar filters messages and receipts.
+const msgF = { q: '', from: '', to: '', type: 'all' };
+function foldPanel(key, title, inner, defOpen = true) {
+  const st = lsGet('wi_fold_' + key), open = st ? st === '1' : defOpen;
+  return `<details class="panel fold" data-fold="${key}" style="margin-top:12px" ${open ? 'open' : ''}><summary style="cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center"><h2 style="margin:0">${title}</h2><span class="empty fold-ic">${open ? '▾ hide' : '▸ show'}</span></summary>${inner}</details>`;
+}
+const dayStartNZ = d => { const off = (new Intl.DateTimeFormat('en-NZ', { timeZone: 'Pacific/Auckland', timeZoneName: 'shortOffset' }).formatToParts(new Date(d + 'T12:00:00Z')).find(x => x.type === 'timeZoneName')?.value || 'GMT+12').replace('GMT', '');
+  const [h, m] = off.split(':'); return new Date(d + 'T00:00:00' + (h[0] === '-' ? '-' : '+') + String(Math.abs(+h)).padStart(2, '0') + ':' + (m || '00')).toISOString(); };
 async function renderTexts() {
-  $('body').innerHTML = `<div class="panel"><h2>Messages sent</h2>
-    <form id="teF" style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0"><input id="teTo" type="email" placeholder="Send a test email to…" style="flex:1;min-width:200px" required><button class="btn ghost">Send test email</button></form>
-    <div class="list" id="tlist"><div class="empty">Loading…</div></div></div>
-    <div class="panel" style="margin-top:12px"><h2>Google Calendar</h2><div id="gcBox" class="empty">Checking…</div></div>
-    <div class="panel" style="margin-top:12px"><h2>Google Contacts</h2><div id="gctBox" class="empty">Checking…</div></div>
-    <div class="panel" style="margin-top:12px"><h2>GST receipts</h2><div id="rcpBox" class="empty">Checking…</div></div>`;
+  const f = msgF;
+  $('body').innerHTML = `<form class="panel" id="mfF" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
+      <label class="label" style="flex:2;min-width:180px">Search name, number, email or words<br><input id="mfQ" value="${esc(f.q)}" placeholder="e.g. Abbott, 027…, reminder" style="width:100%"></label>
+      <label class="label">From<br><input id="mfA" type="date" value="${f.from}"></label>
+      <label class="label">To<br><input id="mfB" type="date" value="${f.to}"></label>
+      <label class="label">Show<br><select id="mfT">${[['all', 'Everything'], ['text', 'Texts'], ['email', 'Emails'], ['rcpt', 'Receipts']].map(([v, n]) => `<option value="${v}" ${f.type === v ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
+      <button class="btn">Search</button><button class="btn ghost" type="button" id="mfX">Clear</button>
+      <span class="empty" id="mfN" style="flex-basis:100%"></span></form>
+    ${foldPanel('msgs', 'Messages sent', `<form id="teF" style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0"><input id="teTo" type="email" placeholder="Send a test email to…" style="flex:1;min-width:200px" required><button class="btn ghost">Send test email</button></form>
+      <div class="list" id="tlist"><div class="empty">Loading…</div></div>`)}
+    ${foldPanel('rcp', 'GST receipts', '<div id="rcpBox" class="empty">Checking…</div>')}
+    ${foldPanel('gcal', 'Google Calendar', '<div id="gcBox" class="empty">Checking…</div>', false)}
+    ${foldPanel('gct', 'Google Contacts', '<div id="gctBox" class="empty">Checking…</div>', false)}`;
+  document.querySelectorAll('details.fold').forEach(d => d.ontoggle = () => { lsSet('wi_fold_' + d.dataset.fold, d.open ? '1' : '0'); d.querySelector('.fold-ic').textContent = d.open ? '▾ hide' : '▸ show'; });
+  $('mfF').onsubmit = e => { e.preventDefault(); Object.assign(msgF, { q: $('mfQ').value.trim(), from: $('mfA').value, to: $('mfB').value, type: $('mfT').value }); renderTexts(); };
+  $('mfT').onchange = () => $('mfF').requestSubmit();
+  $('mfX').onclick = () => { Object.assign(msgF, { q: '', from: '', to: '', type: 'all' }); renderTexts(); };
   renderGcal(); renderGcontacts(); renderReceiptsPanel();
   $('teF').onsubmit = async e => { e.preventDefault(); const { error } = await db.rpc('send_test_email', { p_to: $('teTo').value.trim() }); if (error) return toast(errMsg(error), true); toast('Test email sent'); renderTexts(); };
-  const [sm, em] = await Promise.all([
-    db.from('sms_log').select('*, customer:customers(first_name,last_name)').order('id', { ascending: false }).limit(60),
-    db.from('email_log').select('*, customer:customers(first_name,last_name)').order('id', { ascending: false }).limit(60)]);
+  const filtering = !!(f.q || f.from || f.to);
+  if (f.type === 'rcpt') { $('tlist').innerHTML = '<div class="empty">Showing receipts only — see GST receipts below.</div>'; return; }
+  const q = tbl => {
+    let x = db.from(tbl).select('*, customer:customers(first_name,last_name)').order('id', { ascending: false }).limit(filtering ? 500 : 60);
+    if (f.from) x = x.gte('created_at', dayStartNZ(f.from));
+    if (f.to) { const n = new Date(f.to + 'T12:00:00Z'); n.setUTCDate(n.getUTCDate() + 1); x = x.lt('created_at', dayStartNZ(n.toISOString().slice(0, 10))); }
+    return x;
+  };
+  const none = { data: [] };
+  const [sm, em] = await Promise.all([f.type === 'email' ? none : q('sms_log'), f.type === 'text' ? none : q('email_log')]);
   if (sm.error || em.error) return toast(errMsg(sm.error || em.error), true);
-  const KIND = { login: 'Login code', session: 'Session message', reminder: 'Reminder', test: 'Test', notice: 'Notice', booking: 'Booking', removal: 'Removal', price: 'Price decision' };
-  const all = [...sm.data.map(t => ({ ...t, via: 'Text', to: t.to_phone, text: t.body })), ...em.data.map(t => ({ ...t, via: 'Email', to: t.to_email, text: t.subject + ' — ' + t.body }))]
-    .sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 80);
-  $('tlist').innerHTML = all.map(t => `<div class="item"><span><b>${esc(t.customer ? fullName(t.customer) : t.to)}</b> <span class="pill p-confirmed">${t.via}</span> <span class="empty">${KIND[t.kind] || esc(t.kind)}</span><br><span class="empty">${esc(t.text.slice(0, 220))}</span></span>
-    <span class="empty" style="text-align:right;white-space:nowrap">${new Date(t.created_at).toLocaleString('en-NZ', { timeZone: 'Pacific/Auckland', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}</span></div>`).join('') || '<div class="empty">Nothing sent yet</div>';
+  const KIND = { login: 'Login code', session: 'Session message', reminder: 'Reminder', test: 'Test', notice: 'Notice', booking: 'Booking', removal: 'Removal', price: 'Price decision', receipt: 'Receipt' };
+  const words = f.q.toLowerCase().split(/\s+/).filter(Boolean);
+  const hay = t => [t.customer ? fullName(t.customer) : '', t.to, String(t.to || '').replace(/^\+64/, '0'), t.text, KIND[t.kind] || t.kind, t.via].join(' ').toLowerCase();
+  let all = [...sm.data.map(t => ({ ...t, via: 'Text', to: t.to_phone, text: t.body || '' })), ...em.data.map(t => ({ ...t, via: 'Email', to: t.to_email, text: (t.subject || '') + ' — ' + (t.body || '') }))]
+    .sort((a, b) => b.created_at.localeCompare(a.created_at));
+  if (words.length) all = all.filter(t => { const h = hay(t); return words.every(w => h.includes(w)); });
+  const shown = all.slice(0, filtering ? 300 : 80);
+  $('mfN').textContent = filtering || f.type !== 'all' ? `${all.length} message${all.length === 1 ? '' : 's'} found${all.length > shown.length ? ', showing the newest ' + shown.length : ''}` : '';
+  $('tlist').innerHTML = shown.map(t => `<div class="item"><span><b>${esc(t.customer ? fullName(t.customer) : t.to)}</b> <span class="pill p-confirmed">${t.via}</span> <span class="empty">${KIND[t.kind] || esc(t.kind)}</span><br><span class="empty">${esc(t.text.slice(0, 220))}</span></span>
+    <span class="empty" style="text-align:right;white-space:nowrap">${new Date(t.created_at).toLocaleString('en-NZ', { timeZone: 'Pacific/Auckland', day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' })}</span></div>`).join('') || `<div class="empty">${filtering ? 'Nothing matches.' : 'Nothing sent yet'}</div>`;
 }
 function showSide() { if (matchMedia('(max-width:960px)').matches) setTimeout(() => $('side')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); }
 async function undoPayment(b) {
@@ -1413,7 +1457,9 @@ async function changePrice(b, price, why) {
 async function takePayment(b, method, total, creditUse = 0) {
   if (total < 0) return toast('Total is below $0 — reduce the discount', true);
   document.querySelectorAll('[data-pay]').forEach(x => x.disabled = true);
-  const { error } = await db.from('payments').insert({ booking_id: b.id, customer_id: b.customer_id, amount_cents: Math.round(total * 100), method,
+  // a sale on an earlier day is recorded on that day, so its GST receipt carries that date
+  const back = b.session_date < nzToday() ? { taken_at: b.session_date + 'T12:00:00+13:00' } : {};
+  const { error } = await db.from('payments').insert({ ...back, booking_id: b.id, customer_id: b.customer_id, amount_cents: Math.round(total * 100), method,
     provider_ref: !S.extras.length ? null : S.extras.every(x => typeof x === 'string') ? 'extras:' + S.extras.join(',') : 'extras2:' + JSON.stringify(S.extras) });
   if (error) { document.querySelectorAll('[data-pay]').forEach(x => x.disabled = false); return toast(errMsg(error), true); }
   if (creditUse > 0) {
@@ -1425,9 +1471,9 @@ async function takePayment(b, method, total, creditUse = 0) {
 }
 
 // ---------- add booking (staff) ----------
-async function renderAddBooking(locId, walkin = false, install = false) {
+async function renderAddBooking(locId, walkin = false, install = false, preCust = null) {
   const el = $('side');
-  el.innerHTML = `<h2>${install ? 'Install after the session' : walkin ? 'Walk-in sale' : 'Add booking'} · ${esc(LOC(locId))}</h2><div class="empty">${longDate(S.date)}${walkin ? ' · no booking needed, goes straight to checkout' : ''}</div>
+  el.innerHTML = `<h2>${install ? 'Install after the session' : walkin ? (S.date < nzToday() ? 'Sale on an earlier day' : 'Walk-in sale') : 'Add booking'} · ${esc(LOC(locId))}</h2><div class="empty">${longDate(S.date)}${walkin ? (S.date < nzToday() ? ' · payment and GST receipt are dated this day' : ' · no booking needed, goes straight to checkout') : ''}</div>
     <input id="abQ" placeholder="Search name or mobile" style="width:100%;margin-top:10px" autocomplete="off"><div class="list" id="abList"></div>
     <button class="btn ghost" id="abNew" style="margin-top:8px">+ New customer</button><div id="abPick"></div>`;
   $('abNew').onclick = () => {
@@ -1463,7 +1509,14 @@ async function renderAddBooking(locId, walkin = false, install = false) {
     }
     let opts = allowedServices(engV(c, selV), services, S.date).filter(s => s.group !== 'changeover');
     // a walk-in can be anything: their usual items, a removal, or a blank sale (labour, call-out, parts…) built at checkout
-    if (walkin) opts = [...opts, { id: '__blank', name: 'Labour / other', price: 0, note: 'Nothing pre-set — add labour, call-out km or anything else at checkout' }];
+    if (walkin) {
+      const iq = k => { try { return installCharge(engV(c, selV), services, { complex: k, today: S.date }); } catch (e) { return null; } };
+      const qs = iq(false), qc = iq(true);
+      opts = [...opts,
+        ...(qs ? [{ id: '__inst', name: 'Install — standard', price: qs.total, note: qs.lines.map(l => l.name + ' ' + money(l.price)).join(' + ') }] : []),
+        ...(qc && qc.lines[0].id !== qs?.lines[0].id ? [{ id: '__instcx', name: 'Install — complex', price: qc.total, note: qc.lines.map(l => l.name + ' ' + money(l.price)).join(' + ') }] : []),
+        { id: '__blank', name: 'Labour / other', price: 0, note: 'Nothing pre-set — add labour, call-out km or anything else at checkout' }];
+    }
     $('abList').innerHTML = '';
     $('abPick').innerHTML = `<div style="margin-top:10px"><b>${esc(fullName(c))}</b> · installed ${yDate(selV ? selV.install_date : c.install_date)}</div>
       ${c._veh.length ? `<div class="label" style="margin-top:8px">Which vehicle?</div><div style="display:flex;gap:6px;flex-wrap:wrap">${[null, ...c._veh].map(v => `<button class="chip" data-vx="${v ? v.id : ''}" aria-pressed="${(selV ? selV.id : '') === (v ? v.id : '')}">${esc(vLabel(c, v))}</button>`).join('')}</div>` : ''}
@@ -1497,6 +1550,17 @@ async function renderAddBooking(locId, walkin = false, install = false) {
   // Walk-in: recorded at the current time (off the 5-min grid), already arrived, straight to checkout.
   async function doWalkin(c, svcId, selV, details = {}) {
     const blank = svcId === '__blank';
+    if (svcId === '__inst' || svcId === '__instcx') {
+      // install done as a sale (e.g. entered the day after): same lines as a pencilled install, fee + first month, time fixed
+      const q = installCharge(engV(c, selV), services, { complex: svcId === '__instcx', today: S.date });
+      const sessI = S.sessions.find(x => x.location_id === locId && x.session_date === S.date);
+      let t = sessI ? sessI.end_min : 720; const usedI = new Set(S.bookings.filter(b => b.location_id === locId).map(b => b.start_min)); while (usedI.has(t)) t++;
+      const { data, error } = await db.from('bookings').insert({ vehicle_id: selV ? selV.id : null, customer_id: c.id, service_id: q.lines[0].id, location_id: locId, session_date: S.date, start_min: t,
+        duration_mins: 120, kind: 'service', status: 'arrived', source: 'walkin', price_cents: Math.round(q.total * 100), time_locked: false,
+        details: { install: true, mins: 120, travel: 0, notBefore: null, place: null, locked: true } }).select().single();
+      if (error) return toast(errMsg(error), true);
+      toast(`Install sale added: ${fullName(c)}`); S.sel = data.id; S.extras = []; S.useCredit = false; await loadBookings(true); renderRun(); showSide(); return;
+    }
     // blank sale: filed under 'Additional labour' at $0 so the database is happy; the real lines are added at checkout
     const svc = blank ? { ...SVC('labour'), price: 0, duration: 5 } : allowedServices(engV(c, selV), services, S.date).find(s => s.id === svcId) || SVC(svcId);
     const { vehicle_id, ...det } = details;
@@ -1513,8 +1577,9 @@ async function renderAddBooking(locId, walkin = false, install = false) {
     let { data, error } = await db.from('bookings').insert({ ...rowW, time_locked: false }).select().single();
     if (error && /time_locked/.test(errMsg(error))) ({ data, error } = await db.from('bookings').insert(rowW).select().single());
     if (error) return toast(errMsg(error), true);
-    toast(`Walk-in added: ${fullName(c)}`); S.sel = data.id; S.extras = []; S.useCredit = false; await loadBookings(); renderRun();
+    toast(`Walk-in added: ${fullName(c)}`); S.sel = data.id; S.extras = []; S.useCredit = false; await loadBookings(); renderRun(); showSide();
   }
+  if (preCust) pick(preCust);
 }
 
 // ---------- customers ----------
@@ -1837,19 +1902,27 @@ async function receiptBox(box, b) {
 async function renderReceiptsPanel() {
   const box = $('rcpBox'); if (!box) return;
   const [st, list] = await Promise.all([db.from('receipt_settings').select('*').eq('id', 1).single(),
-    db.from('receipts').select('*').order('no', { ascending: false }).limit(15)]);
+    (() => { const f = msgF, on = S.view === 'texts' && (f.q || f.from || f.to); let x = db.from('receipts').select('*').order('no', { ascending: false }).limit(on ? 300 : 15);
+      if (on && f.from) x = x.gte('issued_at', dayStartNZ(f.from));
+      if (on && f.to) { const n = new Date(f.to + 'T12:00:00Z'); n.setUTCDate(n.getUTCDate() + 1); x = x.lt('issued_at', dayStartNZ(n.toISOString().slice(0, 10))); }
+      return x; })()]);
   if (st.error) { box.innerHTML = 'Not set up yet: run <b>step6-gst-receipts.sql</b> in Supabase first.'; return; }
   const s = st.data;
   if (list.error) { box.innerHTML = `<div class="alert">${esc(errMsg(list.error))}</div>`; return; }
   const ids = [...new Set((list.data || []).map(r => r.customer_id).filter(Boolean))], names = {};
   if (ids.length) { const c = await db.from('customers').select('id,first_name,last_name').in('id', ids); (c.data || []).forEach(x => names[x.id] = fullName(x)); }
   (list.data || []).forEach(r => r.customer = names[r.customer_id] ? { name: names[r.customer_id] } : null);
+  if (S.view === 'texts' && msgF.type !== 'text' && msgF.type !== 'email' && msgF.q) {
+    const w = msgF.q.toLowerCase().split(/\s+/).filter(Boolean);
+    list.data = (list.data || []).filter(r => { const h = ['no. ' + r.no, String(r.no), r.customer ? r.customer.name : '', r.to_email || '', money(r.total_cents / 100)].join(' ').toLowerCase(); return w.every(x => h.includes(x)); });
+  }
+  if (S.view === 'texts' && (msgF.type === 'text' || msgF.type === 'email')) list.data = [];
   box.innerHTML = `<p>Every payment gets a numbered tax invoice for <b>${esc(s.business_name)}</b>, GST ${esc(s.gst_number)}. Customers can see all of theirs in the app (Me tab).</p>
     <p><b>Emailing: ${s.email_on ? 'on' : 'off'}.</b> ${s.email_on ? 'Each receipt is emailed to the customer about a minute after payment.' : 'Turn it on to email each customer their receipt about a minute after payment. Only payments from then on are emailed.'}</p>
     <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn ${s.email_on ? 'ghost' : ''}" id="rcpOn">${s.email_on ? 'Turn emailing off' : 'Turn emailing on'}</button></div>
-    <div class="label" style="margin-top:12px">Latest receipts</div>
+    <div class="label" style="margin-top:12px">${S.view === 'texts' && (msgF.q || msgF.from || msgF.to) ? (list.data || []).length + ' matching receipt' + ((list.data || []).length === 1 ? '' : 's') : 'Latest receipts'}</div>
     <div class="list">${(list.data || []).map(r => `<div class="item"><span><b>No. ${r.no}</b> · ${esc(r.customer ? r.customer.name : '—')} · ${money(r.total_cents / 100)}<br><span class="empty">${whenNZ(r.issued_at)} · ${esc(r.emailed_at ? 'emailed to ' + (r.to_email || '') : RC_ST[r.status] || r.status)}</span></span>
-      <span style="display:flex;gap:4px"><button class="chip" data-rcv="${r.no}">View</button><button class="chip" data-rce="${r.no}">Email</button></span></div>`).join('') || '<div class="empty">None yet.</div>'}</div>`;
+      <span style="display:flex;gap:4px"><button class="chip" data-rcv="${r.no}">View</button><button class="chip" data-rce="${r.no}">Email</button></span></div>`).join('') || `<div class="empty">${S.view === 'texts' && (msgF.q || msgF.from || msgF.to) ? 'Nothing matches.' : 'None yet.'}</div>`}</div>`;
   $('rcpOn').onclick = async () => { const { error } = await db.rpc('receipts_set', { p_on: !s.email_on }); if (error) return toast(errMsg(error), true); toast(s.email_on ? 'Receipt emails off' : 'Receipt emails on'); renderReceiptsPanel(); };
   box.querySelectorAll('[data-rcv]').forEach(x => x.onclick = () => viewReceipt(+x.dataset.rcv));
   box.querySelectorAll('[data-rce]').forEach(x => x.onclick = async () => {
@@ -1967,7 +2040,7 @@ async function custBookings(box, c) {
   };
   box.innerHTML = `<div class="label">Bookings</div>
     ${up.data.length ? `<div class="list">${up.data.map(b => line(b, true)).join('')}</div>` : '<div class="empty">Nothing booked coming up.</div>'}
-    ${past.data.length ? `<details style="margin-top:4px"><summary class="empty" style="cursor:pointer">Last ${past.data.length} visit${past.data.length > 1 ? 's' : ''}</summary><div class="list">${past.data.map(b => line(b, false)).join('')}</div></details>` : ''}`;
+    ${past.data.length ? `<details style="margin-top:4px"><summary class="empty" style="cursor:pointer">Last ${past.data.length} visit${past.data.length > 1 ? 's' : ''}</summary><div class="list">${past.data.map(b => line(b, true)).join('')}</div></details>` : ''}`;
   box.querySelectorAll('[data-gob]').forEach(x => x.onclick = async () => {
     S.view = 'run'; S.date = x.dataset.god; S.sel = x.dataset.gob; S.extras = [];
     if (!S.sessions.some(s => s.session_date === S.date)) { const r = await db.rpc('sessions_between', { from_date: S.date, to_date: S.date }); if (!r.error) S.sessions = S.sessions.concat(r.data); }
@@ -1984,7 +2057,8 @@ function editCustomer(c, target = 'cside', after = renderCustomers) {
     <div class="empty">Training form: <b>${c.training_ack?.signed_at ? '<span style="color:var(--ok, #2e7d32)">signed ' + new Date(c.training_ack.signed_at).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', timeZone: 'Pacific/Auckland' }) + '</span>' : 'not signed'}</b> · checklist: <b>${c.training_ack?.completed_at ? 'all ticked ' + new Date(c.training_ack.completed_at).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', timeZone: 'Pacific/Auckland' }) : (c.training_ack?.items || []).length ? (c.training_ack.items.length + ' of 21 ticked') : 'not started'}</b></div>
     ${c.training_ack?.signed_at ? '' : `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:4px"><button class="btn ghost" id="trSend">${c.training_requested_at ? 'Send training again' : 'Send training to do and sign'}</button>
       ${c.training_requested_at ? `<span class="empty">Sent ${new Date(c.training_requested_at).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', timeZone: 'Pacific/Auckland' })}, not signed yet</span><button class="chip" id="trUnsend">Stop asking</button>` : '<span class="empty">Video, checklist and signature. They are only asked once you send it.</span>'}</div>`}
-    <div style="margin-top:8px"><button class="btn ghost" id="actOpen" style="width:100%">Activity — sign-ins, devices, changes and messages</button></div>
+    <div style="margin-top:8px;display:flex;gap:6px"><button class="btn" id="nsOpen" style="flex:1">+ New sale</button><button class="btn ghost" id="actOpen" style="flex:2">Activity — sign-ins, devices, changes and messages</button></div>
+    <div id="nsBox"></div>
     <div id="bkBox" style="margin-top:8px"></div>
     <div id="sdBox" data-cust="${esc(c.id)}" style="margin-top:8px"></div>
     ${priceReqBox(c)}
@@ -2008,6 +2082,23 @@ function editCustomer(c, target = 'cside', after = renderCustomers) {
     <div id="credBox" style="margin-top:16px;border-top:1px solid var(--line);padding-top:10px"></div>`;
   loadVehicles(c);
   custBookings($('bkBox'), c);
+  $('nsOpen').onclick = () => {
+    if ($('nsF')) { $('nsBox').innerHTML = ''; return; }
+    const home = locations.some(l => l.id === c.home_location_id) ? c.home_location_id : 'mobile';
+    $('nsBox').innerHTML = `<form id="nsF" class="alert" style="background:var(--warn-soft);color:var(--ink);display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-top:8px">
+      <label class="label">Date of the sale<br><input id="nsD" type="date" value="${nzToday()}" max="${nzToday()}" required></label>
+      <label class="label">Where<br><select id="nsL">${locations.filter(l => l.active !== false).map(l => `<option value="${l.id}" ${l.id === home ? 'selected' : ''}>${esc(l.name)}</option>`).join('')}</select></label>
+      <button class="btn brand">Next — choose what</button>
+      <div class="empty" style="flex-basis:100%">For a job you did but didn't put through (e.g. yesterday's install). The payment and GST receipt are dated the day you pick.</div></form>`;
+    $('nsF').onsubmit = async e => {
+      e.preventDefault();
+      const d = $('nsD').value, loc = $('nsL').value; if (!d) return;
+      S.view = 'run'; S.date = d; S.sel = null; S.extras = []; S.useCredit = false;
+      if (!S.sessions.some(s => s.session_date === d)) { const r = await db.rpc('sessions_between', { from_date: d, to_date: d }); if (!r.error) S.sessions = S.sessions.concat(r.data); }
+      await loadBookings(true); render();
+      renderAddBooking(loc, true, false, c); showSide();
+    };
+  };
   $('actOpen').onclick = () => custActivity(c, target, () => editCustomer(c, target, after));
   creditPanel($('credBox'), c.id);
   if ($('trSend')) $('trSend').onclick = async () => {
