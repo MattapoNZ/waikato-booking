@@ -553,7 +553,10 @@ const unlockNote = () => `<b>Locked out or need an unlock code?</b> Call Dräger
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const money = n => n === 0 ? 'Free' : '$' + (Math.round(n * 100) / 100).toFixed(2).replace(/\.00$/, '');
-const nzToday = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Pacific/Auckland' });
+// today's date in NZ as YYYY-MM-DD. Built from the parts, because some phones (seen on iPhones) don't give
+// the 'en-CA' YYYY-MM-DD format and the date maths then fails with "Invalid Date".
+const nzToday = () => { const p = Object.fromEntries(new Intl.DateTimeFormat('en-NZ', { timeZone: 'Pacific/Auckland', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date()).map(x => [x.type, x.value]));
+  return `${p.year}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}`; };
 const longDate = d => parseDate(d).toLocaleDateString('en-NZ', { weekday:'long', day:'numeric', month:'long', timeZone:'UTC' });
 const shortDate = d => parseDate(d).toLocaleDateString('en-NZ', { weekday:'short', day:'numeric', month:'short', timeZone:'UTC' });
 const yDate = d => d ? parseDate(d).toLocaleDateString('en-NZ', { day:'numeric', month:'short', year:'numeric', timeZone:'UTC' }) : '—';
