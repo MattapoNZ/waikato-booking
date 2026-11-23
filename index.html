@@ -1768,6 +1768,30 @@ async function signDocsPanel(box, c) {
     toast('Cancelled'); signDocsPanel(box, c);
   });
 }
+// ---------- a customer's bookings: everything coming up + the last few ----------
+async function custBookings(box, c) {
+  if (!box) return;
+  const today = nzToday();
+  const [up, past] = await Promise.all([
+    db.from('bookings').select('id,service_id,location_id,session_date,start_min,kind,status,source,time_locked,approved_at,details,price_cents').eq('customer_id', c.id).gte('session_date', today).neq('status', 'cancelled').order('session_date').order('start_min').limit(20),
+    db.from('bookings').select('id,service_id,location_id,session_date,start_min,kind,status,source,time_locked,details,price_cents').eq('customer_id', c.id).lt('session_date', today).order('session_date', { ascending: false }).limit(5)]);
+  if (up.error || past.error) { box.innerHTML = `<div class="alert">${esc(errMsg(up.error || past.error))}</div>`; return; }
+  const ST = { confirmed: 'Confirmed', pencilled: 'Pencilled', arrived: 'Arrived', completed: 'Paid', no_show: 'No-show', cancelled: 'Cancelled' };
+  const line = (b, go) => {
+    const approx = (b.kind === 'removal' && b.time_locked === false) || (b.details?.install && !b.details?.locked);
+    const what = b.details?.install ? 'Install' : b.details?.block ? 'Blocked' : b.details?.temporary ? 'Temporary removal' : SVC(b.service_id).name;
+    return `<div class="item" ${go ? `data-gob="${b.id}" data-god="${b.session_date}" style="cursor:pointer"` : ''}><span><b>${longDate(b.session_date)}</b> · ${esc(LOC(b.location_id))} · <span class="t">${approx ? '≈ ' : ''}${fmtTime(b.start_min)}</span><br><span class="empty">${esc(what)}${b.source === 'walkin' ? ' (walk-in)' : ''}</span></span>
+      <span class="pill p-${b.status}">${b.kind === 'removal' && b.time_locked === false ? (b.approved_at ? 'Approved' : 'Needs approval') : ST[b.status] || b.status}</span></div>`;
+  };
+  box.innerHTML = `<div class="label">Bookings</div>
+    ${up.data.length ? `<div class="list">${up.data.map(b => line(b, true)).join('')}</div>` : '<div class="empty">Nothing booked coming up.</div>'}
+    ${past.data.length ? `<details style="margin-top:4px"><summary class="empty" style="cursor:pointer">Last ${past.data.length} visit${past.data.length > 1 ? 's' : ''}</summary><div class="list">${past.data.map(b => line(b, false)).join('')}</div></details>` : ''}`;
+  box.querySelectorAll('[data-gob]').forEach(x => x.onclick = async () => {
+    S.view = 'run'; S.date = x.dataset.god; S.sel = x.dataset.gob; S.extras = [];
+    if (!S.sessions.some(s => s.session_date === S.date)) { const r = await db.rpc('sessions_between', { from_date: S.date, to_date: S.date }); if (!r.error) S.sessions = S.sessions.concat(r.data); }
+    await loadBookings(); render();
+  });
+}
 function editCustomer(c, target = 'cside', after = renderCustomers) {
   setTimeout(() => { const b = document.getElementById('sdBox'); if (b && b.dataset.cust === c.id) signDocsPanel(b, c); }, 0);
   const d = customerDates(eng(c), nzToday()), el = $(target);
@@ -1778,6 +1802,7 @@ function editCustomer(c, target = 'cside', after = renderCustomers) {
     <div class="empty">Training form: <b>${c.training_ack?.signed_at ? '<span style="color:var(--ok, #2e7d32)">signed ' + new Date(c.training_ack.signed_at).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', timeZone: 'Pacific/Auckland' }) + '</span>' : 'not signed'}</b> · checklist: <b>${c.training_ack?.completed_at ? 'all ticked ' + new Date(c.training_ack.completed_at).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', timeZone: 'Pacific/Auckland' }) : (c.training_ack?.items || []).length ? (c.training_ack.items.length + ' of 21 ticked') : 'not started'}</b></div>
     ${c.training_ack?.signed_at ? '' : `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:4px"><button class="btn ghost" id="trSend">${c.training_requested_at ? 'Send training again' : 'Send training to do and sign'}</button>
       ${c.training_requested_at ? `<span class="empty">Sent ${new Date(c.training_requested_at).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', timeZone: 'Pacific/Auckland' })}, not signed yet</span><button class="chip" id="trUnsend">Stop asking</button>` : '<span class="empty">Video, checklist and signature. They are only asked once you send it.</span>'}</div>`}
+    <div id="bkBox" style="margin-top:8px"></div>
     <div id="sdBox" data-cust="${esc(c.id)}" style="margin-top:8px"></div>
     ${priceReqBox(c)}
     ${c.self_registered ? `<div class="alert" style="background:var(--warn-soft);color:var(--ink)"><b>New app sign-up.</b> They entered these details themselves. Check them, then mark as checked.
@@ -1799,6 +1824,7 @@ function editCustomer(c, target = 'cside', after = renderCustomers) {
     <div id="vehBox" style="margin-top:16px;border-top:1px solid var(--line);padding-top:10px"></div>
     <div id="credBox" style="margin-top:16px;border-top:1px solid var(--line);padding-top:10px"></div>`;
   loadVehicles(c);
+  custBookings($('bkBox'), c);
   creditPanel($('credBox'), c.id);
   if ($('trSend')) $('trSend').onclick = async () => {
     $('trSend').disabled = true;
