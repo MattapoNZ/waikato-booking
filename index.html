@@ -606,8 +606,9 @@ const bookingPolicy = {
 const SUPABASE_URL = 'https://yimjmbarxnmakpswbrhz.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_vJ2mi3Ig-2fK_rBQIGA6Zw_4wt8eLpE'; // public key — safe in the page
 // lock: no-op — supabase-js's cross-tab lock can hang sign-in forever on phones (several tabs / home-screen app)
+const STAFF_DEVICE = (() => { try { let d = localStorage.getItem('wi_dev'); if (!d) { d = 'staff-' + Date.now().toString(36) + Math.random().toString(36).slice(2); localStorage.setItem('wi_dev', d); } return d; } catch (e) { return 'staff-nostore'; } })();
 const db = (window.__mockSupabase || window.supabase).createClient(SUPABASE_URL, SUPABASE_KEY,
-  { auth: { persistSession: true, autoRefreshToken: true, lock: async (_n, _t, fn) => fn() } });
+  { auth: { persistSession: true, autoRefreshToken: true, lock: async (_n, _t, fn) => fn() }, global: { headers: { 'x-device-id': STAFF_DEVICE } } });
 const withTimeout = (pr, ms, what) => Promise.race([pr, new Promise((_, rej) => setTimeout(() => rej(new Error(what + ' timed out — check your signal and try again')), ms))]);
 
 // ---------- helpers ----------
@@ -1768,6 +1769,94 @@ async function signDocsPanel(box, c) {
     toast('Cancelled'); signDocsPanel(box, c);
   });
 }
+// ---------- a customer's activity: everything we know happened, newest first ----------
+const uaName = ua => {
+  if (!ua) return 'Unknown device';
+  const os = /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) ? 'iPad' : /Android/.test(ua) ? 'Android' : /Windows/.test(ua) ? 'Windows PC' : /Mac OS X/.test(ua) ? 'Mac' : /Linux/.test(ua) ? 'Linux' : 'Other';
+  const br = /Edg\//.test(ua) ? 'Edge' : /SamsungBrowser/.test(ua) ? 'Samsung Internet' : /CriOS|Chrome\//.test(ua) ? 'Chrome' : /FxiOS|Firefox\//.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : '';
+  return os + (br ? ' · ' + br : '');
+};
+const whenNZ = t => new Date(t).toLocaleString('en-NZ', { timeZone: 'Pacific/Auckland', weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+const METHOD = { otp: 'code', oauth: 'Google', password: 'password', magiclink: 'email link', recovery: 'recovery link' };
+const methodName = m => (m || '').split(',').filter(Boolean).map(x => METHOD[x] || x).join(' + ');
+async function custActivity(c, target, back) {
+  const el = $(target);
+  el.innerHTML = `<button class="chip" id="acBack">← Back to ${esc(fullName(c))}</button><h2 style="margin-top:8px">Activity · ${esc(fullName(c))}</h2><div class="empty">Loading…</div>`;
+  $('acBack').onclick = back;
+  const q = (t, sel, col = 'customer_id') => db.from(t).select(sel).eq(col, c.id).limit(400);
+  const [ev, dv, bk, pay, pr, bl, sm, em, sr, co, cr, eq] = await Promise.all([
+    db.from('customer_events').select('*').eq('customer_id', c.id).order('at', { ascending: false }).limit(400),
+    db.from('customer_devices').select('*').eq('customer_id', c.id).order('last_seen', { ascending: false }),
+    q('bookings', '*'), q('payments', '*'), q('price_requests', '*'), q('bills', '*'), q('sms_log', '*'), q('email_log', '*'),
+    q('service_requests', '*'), q('callout_requests', '*'), q('customer_credits', '*'), q('enquiries', '*')]);
+  const rows = r => (r && !r.error && r.data) || [];
+  const logOn = !ev.error;
+  const it = [];   // { at, icon, title, sub, who }
+  const svcN = b => b.details?.install ? 'Install' : b.details?.block ? 'Blocked time' : b.details?.blank ? 'Walk-in sale' : SVC(b.service_id).name;
+  const bWhen = b => `${longDate(b.session_date)} ${fmtTime(b.start_min)} at ${LOC(b.location_id)}`;
+  const SRC = { app: 'in the app', staff: 'by you on the run sheet', walkin: 'as a walk-in' };
+  const tag = e => [e.actor, e.method ? 'signed in with ' + methodName(e.method) : '', e.user_agent ? uaName(e.user_agent) : '', e.ip ? 'IP ' + e.ip : ''].filter(Boolean).join(' · ');
+  const evs = rows(ev), byRow = {};
+  evs.forEach(e => { const id = e.detail?.id; if (id) (byRow[id] = byRow[id] || []).push(e); });
+  // bookings (from the table itself, so older ones show too), tagged with who/what device when the log has it
+  rows(bk).forEach(b => {
+    const mk = (byRow[b.id] || []).find(e => e.kind === 'bookings_insert');
+    it.push({ at: b.created_at, icon: '📅', title: `Booked ${svcN(b)} for ${bWhen(b)}`, sub: `Made ${SRC[b.source] || b.source || ''}${b.status === 'pencilled' ? ' · pencilled / needs approval' : ''}`, who: mk ? tag(mk) : '' });
+    const cx = (byRow[b.id] || []).find(e => e.kind === 'bookings_update' && e.detail?.changed?.status?.to === 'cancelled');
+    if (b.cancelled_at || cx) it.push({ at: cx ? cx.at : b.cancelled_at, icon: '✖', title: `Cancelled ${svcN(b)} for ${bWhen(b)}`, sub: '', who: cx ? tag(cx) : '' });
+    else if (b.status === 'no_show') it.push({ at: b.updated_at || b.created_at, icon: '⚠', title: `No-show: ${svcN(b)} ${bWhen(b)}`, sub: '' });
+    if (b.approved_at) it.push({ at: b.approved_at, icon: '✔', title: `Removal approved for ${bWhen(b)}`, sub: '' });
+  });
+  rows(pay).forEach(p => it.push({ at: p.created_at, icon: '💳', title: `Paid ${money(p.amount_cents / 100)} by ${p.method === 'card_terminal' ? 'EFTPOS' : p.method === 'online' ? 'card online' : String(p.method).replace(/_/g, ' ')}`, sub: '' }));
+  rows(pr).forEach(r => { it.push({ at: r.created_at, icon: '💲', title: 'Asked for a price change', sub: [r.wants_subsidy ? 'has the subsidy' : '', r.no_theft_protection ? 'no theft protection' : '', r.note ? '“' + r.note + '”' : ''].filter(Boolean).join(' · ') });
+    if (r.decided_at) it.push({ at: r.decided_at, icon: r.status === 'approved' ? '✔' : '✖', title: `Price request ${r.status}`, sub: '' }); });
+  rows(bl).forEach(x => it.push({ at: x.created_at, icon: '🧾', title: `Bill ${money(x.amount_cents / 100)} — ${x.description || ''}`, sub: `${x.status}${x.sent_via ? ' · sent by ' + (x.sent_via === 'sms' ? 'text' : 'email') : ''}` }));
+  rows(sm).forEach(t => it.push({ at: t.created_at, icon: '📱', title: `Text sent${t.kind ? ' · ' + t.kind : ''}${t.to_phone ? ' to ' + t.to_phone : ''}`, sub: t.body || '', msg: true }));
+  rows(em).forEach(t => it.push({ at: t.created_at, icon: '✉', title: `Email sent${t.kind ? ' · ' + t.kind : ''}${t.to_email ? ' to ' + t.to_email : ''}`, sub: (t.subject || '') + (t.body ? ' — ' + t.body : ''), msg: true }));
+  rows(sr).forEach(r => it.push({ at: r.created_at, icon: '🚗', title: `Request: ${r.kind || 'service request'}${r.status ? ' (' + r.status + ')' : ''}`, sub: r.vehicle ? JSON.stringify(r.vehicle).replace(/[{}"]/g, '').replace(/,/g, ', ') : (r.notes || '') }));
+  rows(co).forEach(r => it.push({ at: r.created_at, icon: '🚐', title: `Call-out request${r.status ? ' (' + r.status + ')' : ''}`, sub: r.address || r.notes || '' }));
+  rows(cr).forEach(r => it.push({ at: r.created_at, icon: '🎟', title: `Account credit ${r.amount_cents > 0 ? '+' : '−'}${money(Math.abs(r.amount_cents) / 100)}`, sub: r.reason || '' }));
+  rows(eq).forEach(e => it.push({ at: e.created_at, icon: '📝', title: 'Sent the new-customer form', sub: [e.town, e.vehicle ? vehLine(e.vehicle) : ''].filter(Boolean).join(' · ') }));
+  if (c.created_at) it.push({ at: c.created_at, icon: '👤', title: c.self_registered || /app/i.test(c.notes || '') ? 'Signed up in the app' : 'Customer record created', sub: '' });
+  // the log: sign-ins, devices, passwords, and changes to their details
+  const HIDE = new Set(['updated_at', 'auth_user_id', 'due_overrides', 'training_ack']);
+  const LABEL = { signed_in: '🔑 Signed in', signed_out: '🚪 Signed out', password_set: '🔒 Set a password', device_new: '📲 First seen on a new device', new_device_code_sent: '📨 New device — code sent to confirm', new_device_confirmed: '✅ New device confirmed with a code' };
+  evs.forEach(e => {
+    if (LABEL[e.kind]) return it.push({ at: e.at, icon: '', title: LABEL[e.kind] + (e.kind === 'signed_in' && e.detail?.new_device ? ' (new device)' : ''), sub: '', who: tag(e) });
+    if (e.kind === 'customers_insert') return it.push({ at: e.at, icon: '👤', title: 'Customer record created', sub: '', who: tag(e) });
+    if (e.kind === 'customers_update') {
+      const ch = Object.entries(e.detail?.changed || {}).filter(([k]) => !HIDE.has(k));
+      if (ch.length) it.push({ at: e.at, icon: '✏', title: 'Details changed', sub: ch.map(([k, v]) => `${k.replace(/_/g, ' ')}: ${v.from ?? '—'} → ${v.to ?? '—'}`).join(' · '), who: tag(e) });
+      return;
+    }
+    if (e.kind === 'bookings_update') {
+      const ch = Object.entries(e.detail?.changed || {}).filter(([k]) => !['start_min', 'details', 'cancelled_at'].includes(k) && !(k === 'status' && e.detail.changed.status.to === 'cancelled'));
+      if (ch.length) it.push({ at: e.at, icon: '✏', title: 'Booking changed', sub: ch.map(([k, v]) => `${k.replace(/_/g, ' ')}: ${typeof v.from === 'object' ? '…' : v.from ?? '—'} → ${typeof v.to === 'object' ? '…' : v.to ?? '—'}`).join(' · '), who: tag(e) });
+      return;
+    }
+    if (e.kind === 'bookings_delete') return it.push({ at: e.at, icon: '🗑', title: 'Booking deleted', sub: '', who: tag(e) });
+    if (e.kind === 'customer_vehicles_insert') return it.push({ at: e.at, icon: '🚗', title: 'Vehicle added: ' + (e.detail?.label || ''), sub: '', who: tag(e) });
+  });
+  it.sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
+  const devs = rows(dv);
+  el.innerHTML = `<button class="chip" id="acBack">← Back to ${esc(fullName(c))}</button><h2 style="margin-top:8px">Activity · ${esc(fullName(c))}</h2>
+    ${logOn ? '' : `<div class="alert" style="background:var(--warn-soft);color:var(--ink)">Showing what the records already hold (bookings, payments, requests, texts and emails). Sign-ins, devices and who-changed-what start recording once <b>step4-activity-devices.sql</b> is run in Supabase.</div>`}
+    <div class="empty">${c.auth_user_id ? 'Has an app login.' : 'No app login yet.'} We only have messages we sent. Replies to texts and emails don't come into this system.</div>
+    ${devs.length ? `<div class="label" style="margin-top:10px">Devices</div><div class="list">${devs.map(d => `<div class="item"><span><b>${esc(uaName(d.user_agent))}</b>${d.trusted ? ' <span class="pill p-completed">Confirmed</span>' : ' <span class="pill p-pencilled">Not confirmed</span>'}<br>
+      <span class="empty">First ${whenNZ(d.first_seen)} · last ${whenNZ(d.last_seen)}${d.ip ? ' · IP ' + esc(d.ip) : ''}${d.trusted_by ? ' · confirmed by ' + esc(methodName(d.trusted_by)) : ''}</span></span>
+      <button class="chip" data-forget="${esc(d.device_id)}" data-fu="${esc(d.user_id)}" title="Next password sign-in on this device will need a code">Forget</button></div>`).join('')}</div>` : ''}
+    <div class="label" style="margin-top:10px">Timeline · ${it.length} event${it.length === 1 ? '' : 's'}</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin:4px 0"><label class="chip"><input type="checkbox" id="acMsg" checked> Messages</label></div>
+    <div class="list" id="acList">${it.map(x => `<div class="item" ${x.msg ? 'data-msg="1"' : ''} style="align-items:flex-start"><span><b>${x.icon ? x.icon + ' ' : ''}${esc(x.title)}</b>${x.sub ? `<br><span class="empty">${esc(String(x.sub).slice(0, 400))}</span>` : ''}${x.who ? `<br><span class="empty" style="font-size:.8rem">${esc(x.who)}</span>` : ''}</span>
+      <span class="empty" style="text-align:right;white-space:nowrap;font-size:.82rem">${x.at ? whenNZ(x.at) : '—'}</span></div>`).join('') || '<div class="empty">Nothing recorded yet.</div>'}</div>`;
+  $('acBack').onclick = back;
+  $('acMsg').onchange = () => document.querySelectorAll('#acList [data-msg]').forEach(x => x.hidden = !$('acMsg').checked);
+  el.querySelectorAll('[data-forget]').forEach(b => b.onclick = async () => {
+    const { error } = await db.from('customer_devices').delete().eq('user_id', b.dataset.fu).eq('device_id', b.dataset.forget);
+    if (error) return toast(errMsg(error), true); toast('Device forgotten'); custActivity(c, target, back);
+  });
+}
+
 // ---------- a customer's bookings: everything coming up + the last few ----------
 async function custBookings(box, c) {
   if (!box) return;
@@ -1802,6 +1891,7 @@ function editCustomer(c, target = 'cside', after = renderCustomers) {
     <div class="empty">Training form: <b>${c.training_ack?.signed_at ? '<span style="color:var(--ok, #2e7d32)">signed ' + new Date(c.training_ack.signed_at).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', timeZone: 'Pacific/Auckland' }) + '</span>' : 'not signed'}</b> · checklist: <b>${c.training_ack?.completed_at ? 'all ticked ' + new Date(c.training_ack.completed_at).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', timeZone: 'Pacific/Auckland' }) : (c.training_ack?.items || []).length ? (c.training_ack.items.length + ' of 21 ticked') : 'not started'}</b></div>
     ${c.training_ack?.signed_at ? '' : `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:4px"><button class="btn ghost" id="trSend">${c.training_requested_at ? 'Send training again' : 'Send training to do and sign'}</button>
       ${c.training_requested_at ? `<span class="empty">Sent ${new Date(c.training_requested_at).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', timeZone: 'Pacific/Auckland' })}, not signed yet</span><button class="chip" id="trUnsend">Stop asking</button>` : '<span class="empty">Video, checklist and signature. They are only asked once you send it.</span>'}</div>`}
+    <div style="margin-top:8px"><button class="btn ghost" id="actOpen" style="width:100%">Activity — sign-ins, devices, changes and messages</button></div>
     <div id="bkBox" style="margin-top:8px"></div>
     <div id="sdBox" data-cust="${esc(c.id)}" style="margin-top:8px"></div>
     ${priceReqBox(c)}
@@ -1825,6 +1915,7 @@ function editCustomer(c, target = 'cside', after = renderCustomers) {
     <div id="credBox" style="margin-top:16px;border-top:1px solid var(--line);padding-top:10px"></div>`;
   loadVehicles(c);
   custBookings($('bkBox'), c);
+  $('actOpen').onclick = () => custActivity(c, target, () => editCustomer(c, target, after));
   creditPanel($('credBox'), c.id);
   if ($('trSend')) $('trSend').onclick = async () => {
     $('trSend').disabled = true;
