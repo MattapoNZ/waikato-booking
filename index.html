@@ -563,6 +563,7 @@ const services = [
 
   // ---- Dräger Schedule of Fees and Charges, DSP-ITL-605 Rev:4, effective 16 Apr 2026 (NZD incl GST) ----
   // Staff-only charges, added at checkout. Not bookable by customers.
+  { id: 'mouthpiece', name: 'Mouthpieces', price: 20, group: 'fee' },   // sold at the counter, not a Dräger fee
   { id: 'reinst', name: 'Reinstallation — standard vehicle', price: 200, group: 'fee' },
   { id: 'reinst-cx', name: 'Reinstallation — complex vehicle', price: 300, group: 'fee' },
   { id: 'labour', name: 'Additional labour (per hour)', price: 100, group: 'fee' },
@@ -1203,7 +1204,7 @@ function renderSide() {
         <span class="t">${money(b.price_cents/100)}${paid ? '' : ' <button class="chip" id="chgPrice" style="padding:0 8px">Edit price</button>'}</span></div><div id="priceBox"></div>`}
       ${S.extras.map((x, i) => `<div class="co-line"><span>${esc(xName(x))}${paid ? '' : ` <button class="chip" data-rx="${i}" title="Remove" style="padding:0 7px">×</button>`}</span><span class="t">${money(xPrice(x))}</span></div>`).join('')}
       ${paid && b.details?.credit_used_cents ? `<div class="co-line credit"><span>Account credit used</span><span class="t">−${money(b.details.credit_used_cents / 100)}</span></div>` : ''}
-      ${paid ? '' : `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"><button class="chip" data-x="vr">+ Violation reset $100</button><button class="chip" data-x="vr-disc">+ Mech/battery $60</button>${S.extras.length?'<button class="chip" id="clrX">Clear</button>':''}</div>
+      ${paid ? '' : `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"><button class="chip" data-x="vr">+ Violation reset $100</button><button class="chip" data-x="vr-disc">+ Mech/battery $60</button><button class="chip" data-x="mouthpiece">+ Mouthpieces $20</button>${S.extras.length?'<button class="chip" id="clrX">Clear</button>':''}</div>
       <div style="display:flex;gap:6px;margin-top:6px"><select id="moreFee" style="flex:1"><option value="">More Dräger charges…</option>
         <optgroup label="Services">${services.filter(x=>['service','violation','removal','install','changeover'].includes(x.group)).map(x=>`<option value="${x.id}">${esc(x.name)} — ${money(x.price)}</option>`).join('')}</optgroup>
         <optgroup label="Fees">${services.filter(x=>x.group==='fee').map(x=>`<option value="${x.id}">${esc(x.name)} — ${money(x.price)}</option>`).join('')}</optgroup>
