@@ -1811,6 +1811,13 @@ function receiptWindow(r, st, custName) {
     <div>Paid by ${esc(PAYM(r.method))}</div><p style="color:#666">${esc(st.contact)}</p><button onclick="print()">Print / save as PDF</button>`);
   w.document.close();
 }
+async function viewReceipt(no) {
+  const [q, st] = await Promise.all([db.from('receipts').select('*').eq('no', no).single(), db.from('receipt_settings').select('*').eq('id', 1).single()]);
+  if (q.error) return toast(errMsg(q.error), true);
+  let name = '';
+  if (q.data.customer_id) { const c = await db.from('customers').select('first_name,last_name').eq('id', q.data.customer_id).maybeSingle(); if (c.data) name = fullName(c.data); }
+  receiptWindow(q.data, st.data || {}, name);
+}
 async function receiptBox(box, b) {
   const pid = b.payments[0]?.id; if (!pid) return;
   const [r, st] = await Promise.all([db.from('receipts').select('*').eq('payment_id', pid).maybeSingle(),
@@ -1830,18 +1837,21 @@ async function receiptBox(box, b) {
 async function renderReceiptsPanel() {
   const box = $('rcpBox'); if (!box) return;
   const [st, list] = await Promise.all([db.from('receipt_settings').select('*').eq('id', 1).single(),
-    db.from('receipts').select('*, customer:customers(first_name,last_name)').order('no', { ascending: false }).limit(15)]);
+    db.from('receipts').select('*').order('no', { ascending: false }).limit(15)]);
   if (st.error) { box.innerHTML = 'Not set up yet: run <b>step6-gst-receipts.sql</b> in Supabase first.'; return; }
   const s = st.data;
+  if (list.error) { box.innerHTML = `<div class="alert">${esc(errMsg(list.error))}</div>`; return; }
+  const ids = [...new Set((list.data || []).map(r => r.customer_id).filter(Boolean))], names = {};
+  if (ids.length) { const c = await db.from('customers').select('id,first_name,last_name').in('id', ids); (c.data || []).forEach(x => names[x.id] = fullName(x)); }
+  (list.data || []).forEach(r => r.customer = names[r.customer_id] ? { name: names[r.customer_id] } : null);
   box.innerHTML = `<p>Every payment gets a numbered tax invoice for <b>${esc(s.business_name)}</b>, GST ${esc(s.gst_number)}. Customers can see all of theirs in the app (Me tab).</p>
     <p><b>Emailing: ${s.email_on ? 'on' : 'off'}.</b> ${s.email_on ? 'Each receipt is emailed to the customer about a minute after payment.' : 'Turn it on to email each customer their receipt about a minute after payment. Only payments from then on are emailed.'}</p>
     <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn ${s.email_on ? 'ghost' : ''}" id="rcpOn">${s.email_on ? 'Turn emailing off' : 'Turn emailing on'}</button></div>
     <div class="label" style="margin-top:12px">Latest receipts</div>
-    <div class="list">${(list.data || []).map(r => `<div class="item"><span><b>No. ${r.no}</b> · ${esc(r.customer ? fullName(r.customer) : '—')} · ${money(r.total_cents / 100)}<br><span class="empty">${whenNZ(r.issued_at)} · ${esc(r.emailed_at ? 'emailed to ' + (r.to_email || '') : RC_ST[r.status] || r.status)}</span></span>
+    <div class="list">${(list.data || []).map(r => `<div class="item"><span><b>No. ${r.no}</b> · ${esc(r.customer ? r.customer.name : '—')} · ${money(r.total_cents / 100)}<br><span class="empty">${whenNZ(r.issued_at)} · ${esc(r.emailed_at ? 'emailed to ' + (r.to_email || '') : RC_ST[r.status] || r.status)}</span></span>
       <span style="display:flex;gap:4px"><button class="chip" data-rcv="${r.no}">View</button><button class="chip" data-rce="${r.no}">Email</button></span></div>`).join('') || '<div class="empty">None yet.</div>'}</div>`;
   $('rcpOn').onclick = async () => { const { error } = await db.rpc('receipts_set', { p_on: !s.email_on }); if (error) return toast(errMsg(error), true); toast(s.email_on ? 'Receipt emails off' : 'Receipt emails on'); renderReceiptsPanel(); };
-  box.querySelectorAll('[data-rcv]').forEach(x => x.onclick = async () => { const q = await db.from('receipts').select('*, customer:customers(first_name,last_name)').eq('no', x.dataset.rcv).single();
-    if (q.error) return toast(errMsg(q.error), true); receiptWindow(q.data, s, q.data.customer ? fullName(q.data.customer) : ''); });
+  box.querySelectorAll('[data-rcv]').forEach(x => x.onclick = () => viewReceipt(+x.dataset.rcv));
   box.querySelectorAll('[data-rce]').forEach(x => x.onclick = async () => {
     const to = prompt('Email receipt No. ' + x.dataset.rce + ' to (leave blank for the customer\'s own email):', '');
     if (to === null) return;
@@ -1897,7 +1907,7 @@ async function custActivity(c, target, back) {
   rows(sr).forEach(r => it.push({ at: r.created_at, icon: '🚗', title: `Request: ${r.kind || 'service request'}${r.status ? ' (' + r.status + ')' : ''}`, sub: r.vehicle ? JSON.stringify(r.vehicle).replace(/[{}"]/g, '').replace(/,/g, ', ') : (r.notes || '') }));
   rows(co).forEach(r => it.push({ at: r.created_at, icon: '🚐', title: `Call-out request${r.status ? ' (' + r.status + ')' : ''}`, sub: r.address || r.notes || '' }));
   rows(cr).forEach(r => it.push({ at: r.created_at, icon: '🎟', title: `Account credit ${r.amount_cents > 0 ? '+' : '−'}${money(Math.abs(r.amount_cents) / 100)}`, sub: r.reason || '' }));
-  rows(rc).forEach(r => it.push({ at: r.issued_at, icon: '🧾', title: `Receipt No. ${r.no} · ${money(r.total_cents / 100)}${r.status === 'void' ? ' (cancelled)' : ''}`, sub: r.emailed_at ? 'Emailed to ' + (r.to_email || '') : RC_ST[r.status] || '' }));
+  rows(rc).forEach(r => it.push({ rc: r.no, at: r.issued_at, icon: '🧾', title: `Receipt No. ${r.no} · ${money(r.total_cents / 100)}${r.status === 'void' ? ' (cancelled)' : ''}`, sub: r.emailed_at ? 'Emailed to ' + (r.to_email || '') : RC_ST[r.status] || '' }));
   rows(eq).forEach(e => it.push({ at: e.created_at, icon: '📝', title: 'Sent the new-customer form', sub: [e.town, e.vehicle ? vehLine(e.vehicle) : ''].filter(Boolean).join(' · ') }));
   if (c.created_at) it.push({ at: c.created_at, icon: '👤', title: c.self_registered || /app/i.test(c.notes || '') ? 'Signed up in the app' : 'Customer record created', sub: '' });
   // the log: sign-ins, devices, passwords, and changes to their details
@@ -1929,9 +1939,10 @@ async function custActivity(c, target, back) {
       <button class="chip" data-forget="${esc(d.device_id)}" data-fu="${esc(d.user_id)}" title="Next password sign-in on this device will need a code">Forget</button></div>`).join('')}</div>` : ''}
     <div class="label" style="margin-top:10px">Timeline · ${it.length} event${it.length === 1 ? '' : 's'}</div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin:4px 0"><label class="chip"><input type="checkbox" id="acMsg" checked> Messages</label></div>
-    <div class="list" id="acList">${it.map(x => `<div class="item" ${x.msg ? 'data-msg="1"' : ''} style="align-items:flex-start"><span><b>${x.icon ? x.icon + ' ' : ''}${esc(x.title)}</b>${x.sub ? `<br><span class="empty">${esc(String(x.sub).slice(0, 400))}</span>` : ''}${x.who ? `<br><span class="empty" style="font-size:.8rem">${esc(x.who)}</span>` : ''}</span>
+    <div class="list" id="acList">${it.map(x => `<div class="item" ${x.msg ? 'data-msg="1"' : ''}${x.rc ? ` data-acrc="${x.rc}" title="View receipt"` : ''} style="align-items:flex-start${x.rc ? ';cursor:pointer' : ''}"><span><b>${x.icon ? x.icon + ' ' : ''}${esc(x.title)}</b>${x.sub ? `<br><span class="empty">${esc(String(x.sub).slice(0, 400))}</span>` : ''}${x.who ? `<br><span class="empty" style="font-size:.8rem">${esc(x.who)}</span>` : ''}</span>
       <span class="empty" style="text-align:right;white-space:nowrap;font-size:.82rem">${x.at ? whenNZ(x.at) : '—'}</span></div>`).join('') || '<div class="empty">Nothing recorded yet.</div>'}</div>`;
   $('acBack').onclick = back;
+  el.querySelectorAll('[data-acrc]').forEach(x => x.onclick = () => viewReceipt(+x.dataset.acrc));
   $('acMsg').onchange = () => document.querySelectorAll('#acList [data-msg]').forEach(x => x.hidden = !$('acMsg').checked);
   el.querySelectorAll('[data-forget]').forEach(b => b.onclick = async () => {
     const { error } = await db.from('customer_devices').delete().eq('user_id', b.dataset.fu).eq('device_id', b.dataset.forget);
