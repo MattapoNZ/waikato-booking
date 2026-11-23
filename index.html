@@ -1331,6 +1331,21 @@ async function renderGcal() {
     const r = await db.rpc('gcal_disconnect'); if (r.error) return toast(errMsg(r.error), true); toast('Disconnected. Events already in Google stay there.'); renderGcal();
   };
 }
+// Customers copied into Google Contacts (label "Waikato Interlocks"), which sync to Matt's phone. Uses the calendar's Google connection.
+async function renderGcontacts() {
+  const box = $('gctBox'); if (!box) return;
+  const { data: g, error } = await db.rpc('gcontacts_status');
+  if (error) { box.innerHTML = /gcontacts_status/.test(errMsg(error)) ? 'Not set up yet: run <b>step5-google-contacts.sql</b> in Supabase first.' : esc(errMsg(error)); return; }
+  const when = t => t ? new Date(t).toLocaleString('en-NZ', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', timeZone: 'Pacific/Auckland' }) : 'not yet';
+  box.innerHTML = `<p>Copies every customer into your Google Contacts under the label <b>Waikato Interlocks</b>, with their mobile, email and vehicle, so they show up on your phone when they call or text. Changes here update the contact within a minute or two.</p>
+    <p class="empty">One-off setup: switch on the <b>People API</b> in the same Google Cloud project as the calendar, then disconnect and connect Google Calendar above and tick the contacts permission when Google asks.</p>
+    ${g.enabled ? `<p><b>On.</b> ${g.synced} copied${g.waiting ? ' · ' + g.waiting + ' waiting' : ''}${g.failed ? ' · <span style="color:var(--bad)">' + g.failed + ' could not be copied</span>' : ''} · last run ${when(g.last_sync_at)}.</p>` : '<p><b>Off.</b> Nothing is copied.</p>'}
+    ${g.last_error ? `<div class="alert">${esc(g.last_error)}</div>` : ''}${g.sample_error && g.failed ? `<div class="empty">Last problem: ${esc(g.sample_error)}</div>` : ''}
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"><button class="btn ${g.enabled ? 'ghost' : ''}" id="gctOn">${g.enabled ? 'Turn off' : 'Turn on'}</button>${g.enabled ? '<button class="chip" id="gctRe">Copy everyone again</button>' : ''}</div>`;
+  $('gctOn').onclick = async () => { const r = await db.rpc('gcontacts_set', { p_on: !g.enabled, p_retry: !g.enabled && !!g.failed }); if (r.error) return toast(errMsg(r.error), true);
+    toast(g.enabled ? 'Contacts copying off. Contacts already in Google stay there.' : 'On — customers will appear in Google Contacts over the next few minutes'); renderGcontacts(); };
+  if ($('gctRe')) $('gctRe').onclick = async () => { const r = await db.rpc('gcontacts_set', { p_on: true, p_retry: true }); if (r.error) return toast(errMsg(r.error), true); toast('Every customer will be copied again'); renderGcontacts(); };
+}
 // Coming back from Google's approval screen: hand the one-time code to the database, then tidy the address.
 async function finishGcalConnect() {
   const q = new URLSearchParams(location.search), code = q.get('code'), state = q.get('state'), gerr = q.get('error');
@@ -1344,8 +1359,9 @@ async function renderTexts() {
   $('body').innerHTML = `<div class="panel"><h2>Messages sent</h2>
     <form id="teF" style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0"><input id="teTo" type="email" placeholder="Send a test email to…" style="flex:1;min-width:200px" required><button class="btn ghost">Send test email</button></form>
     <div class="list" id="tlist"><div class="empty">Loading…</div></div></div>
-    <div class="panel" style="margin-top:12px"><h2>Google Calendar</h2><div id="gcBox" class="empty">Checking…</div></div>`;
-  renderGcal();
+    <div class="panel" style="margin-top:12px"><h2>Google Calendar</h2><div id="gcBox" class="empty">Checking…</div></div>
+    <div class="panel" style="margin-top:12px"><h2>Google Contacts</h2><div id="gctBox" class="empty">Checking…</div></div>`;
+  renderGcal(); renderGcontacts();
   $('teF').onsubmit = async e => { e.preventDefault(); const { error } = await db.rpc('send_test_email', { p_to: $('teTo').value.trim() }); if (error) return toast(errMsg(error), true); toast('Test email sent'); renderTexts(); };
   const [sm, em] = await Promise.all([
     db.from('sms_log').select('*, customer:customers(first_name,last_name)').order('id', { ascending: false }).limit(60),

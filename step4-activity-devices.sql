@@ -46,7 +46,7 @@ begin
     cid := case when TG_TABLE_NAME = 'customers' then coalesce(n, o)->>'id' else coalesce(n, o)->>'customer_id' end;
     if TG_OP = 'UPDATE' then
       select jsonb_object_agg(key, jsonb_build_object('from', o->key, 'to', value)) into ch
-        from jsonb_each(n) where o->key is distinct from value and key not in ('updated_at', 'last_seen_at');
+        from jsonb_each(n) where o->key is distinct from value and key not in ('updated_at', 'last_seen_at') and key not like 'gcontact%';
       if ch is null then return null; end if;
       det := jsonb_build_object('id', n->'id', 'changed', ch);
     else
