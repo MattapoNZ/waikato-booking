@@ -536,8 +536,15 @@ const bookingPolicy = {
 
 const SUPABASE_URL = 'https://yimjmbarxnmakpswbrhz.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_vJ2mi3Ig-2fK_rBQIGA6Zw_4wt8eLpE'; // public key — safe in the page
+// A random id for this phone/browser, kept in its storage. Sent with every request so the security log
+// can tell devices apart, and so a password sign-in on a device we haven't seen asks for a code first.
+const DEVICE_ID = (() => { try { let d = localStorage.getItem('wi_dev'); if (!d) { d = (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2)); localStorage.setItem('wi_dev', d); } return d; }
+  catch (e) { return 'nostore-' + Date.now().toString(36) + Math.random().toString(36).slice(2); } })();
 const db = (window.__mockSupabase || window.supabase).createClient(SUPABASE_URL, SUPABASE_KEY,
-  { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, lock: async (_n, _t, fn) => fn() } });
+  { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, lock: async (_n, _t, fn) => fn() },
+    global: { headers: { 'x-device-id': DEVICE_ID } } });
+// how this session was signed in, from the token: ['otp'], ['oauth'], ['password'] …
+const amrOf = sess => { try { return JSON.parse(atob(sess.access_token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).amr || []; } catch (e) { return []; } };
 const MATT = '027 264 6986';
 const DRAEGER = '0800 372 437';
 const unlockNote = () => `<b>Locked out or need an unlock code?</b> Call Dräger on <a href="tel:${DRAEGER.replace(/ /g,'')}">${DRAEGER}</a>. Only Dräger can give unlock codes, Matt can't.`;
@@ -715,7 +722,12 @@ function renderEnquiry() {
     scrollTo(0, 0);
   };
 }
+// only one start() at a time: signing in fires both the sign-in form's own call and the auth listener
 async function start() {
+  if (S.inStart) return; S.inStart = true;
+  try { return await start0(); } finally { S.inStart = false; }
+}
+async function start0() {
   const qs = new URLSearchParams(location.search);
   const payTok = qs.get('pay');
   if (payTok) return renderPay(payTok);
@@ -727,6 +739,22 @@ async function start() {
     const { data } = await withTimeout(db.auth.getSession(), 15000, 'Checking login');
     if (!data.session) return renderLogin();
     S.user = data.session.user;
+    // New-device check. A password on its own isn't enough on a phone we haven't seen: they confirm with a code first.
+    // (If the step-4 SQL isn't in yet, device_check errors and we carry on as before.)
+    const dc = await db.rpc('device_check', { p_device: DEVICE_ID });
+    if (!dc.error && dc.data && !dc.data.trusted && !dc.data.strong) {
+      const who = S.pwId || S.user.email || (S.user.phone ? '+' + String(S.user.phone).replace(/^\+/, '') : '');
+      await db.rpc('log_event', { p_kind: 'new_device_code_sent', p_detail: { to: who } });
+      await db.auth.signOut(); S.me = null; S.pwId = null;
+      return renderLogin(null, { confirmDevice: who });
+    }
+    // log a fresh sign-in once (not every time the app is opened)
+    const am = amrOf(data.session), last = am.reduce((a, x) => Math.max(a, x.timestamp || 0), 0);
+    let logged = ''; try { logged = localStorage.getItem('wi_lastsign') || ''; } catch (e) {}
+    if (last && Date.now() / 1000 - last < 900 && logged !== String(last)) {
+      db.rpc('log_event', { p_kind: 'signed_in', p_detail: { method: am.map(x => x.method).join(','), new_device: !!dc.data?.new } }).then(() => {});
+      try { localStorage.setItem('wi_lastsign', String(last)); } catch (e) {}
+    }
     const { data: linked, error } = await withTimeout(db.rpc('link_me'), 15000, 'Finding your details');
     if (error) return renderLogin(errMsg(error));
     if (!linked) return renderNoMatch();
@@ -739,7 +767,7 @@ async function start() {
   } catch (e) { renderLogin(errMsg(e)); }
 }
 
-async function renderLogin(msg) {
+async function renderLogin(msg, opt = {}) {
   $('app').innerHTML = `<h1>Waikato Interlocks</h1><p class="muted">Book your interlock service, see your dates and what you pay.</p>
     <div class="card" id="lg">${msg ? `<div class="note bad">${esc(msg)}</div>` : ''}<p class="muted">Checking sign-in options…</p></div>
     <p class="muted" style="text-align:center;margin-top:16px"><b>New here and need an interlock fitted?</b> <a href="?new">Send us your details</a><br><a href="?help">Help, guides and questions</a><br>Anything urgent: text or call Matt on <a href="tel:${MATT.replace(/ /g,'')}">${MATT}</a><br>${unlockNote()}<br><a href="../privacy/">Privacy policy</a> · <a href="../?staff">Staff</a></p>`;
@@ -756,10 +784,29 @@ async function renderLogin(msg) {
     ${ext.email && ext.phone ? '<p class="muted" style="text-align:center;margin:14px 0 0">or</p>' : ''}
     ${ext.phone ? `<form id="phF"><label class="f" for="ph">Your mobile number</label><input id="ph" type="tel" inputmode="tel" autocomplete="tel" placeholder="021 123 4567" required>
       <button class="btn ${ext.email ? 'ghost' : 'brand'}" id="phGo">Text me a code</button></form><div id="codeBox"></div>` : ''}
+    ${ext.email || ext.phone ? `<details id="pwBox" style="margin-top:14px" ${opt.confirmDevice ? '' : ''}><summary class="muted" style="cursor:pointer">Sign in with a password instead</summary>
+      <form id="pwF"><label class="f" for="pwId">Email or mobile number</label><input id="pwId" autocomplete="username" autocapitalize="off" spellcheck="false" required>
+        <label class="f" for="pwPw">Password</label><input id="pwPw" type="password" autocomplete="current-password" required>
+        <button class="btn" id="pwGo">Sign in</button></form>
+      <p class="muted">No password yet, or forgotten it? Sign in with a code above, then set one under <b>Me</b>. On a new phone or computer we also send you a code, to check it's you.</p></details>` : ''}
     <div id="lgMsg" class="note bad" hidden></div>
     <p class="muted" style="margin-top:12px">Already a customer? Use the email or mobile number Matt has for you. New here? Sign in and we'll set you up.</p>`
     : `<h2>Online booking opens soon</h2><p>To book now, text Matt on <a href="sms:${MATT.replace(/ /g,'')}">${MATT}</a>.</p>`);
   const fail = m => { const b = $('lgMsg'); b.textContent = m; b.hidden = false; };
+  if ($('pwF')) $('pwF').onsubmit = async e => {
+    e.preventDefault(); $('lgMsg').hidden = true;
+    const raw = $('pwId').value.trim(), phone = raw.includes('@') ? null : nzPhone(raw), email = raw.includes('@') ? raw.toLowerCase() : null;
+    if (!phone && !email) return fail('Enter your email address or NZ mobile number');
+    $('pwGo').disabled = true; $('pwGo').textContent = 'Signing in…';
+    try {
+      const { error } = await withTimeout(db.auth.signInWithPassword(email ? { email, password: $('pwPw').value } : { phone, password: $('pwPw').value }), 20000, 'Signing in');
+      if (error) throw error;
+      S.pwId = email || phone; await start();
+    } catch (er) {
+      $('pwGo').disabled = false; $('pwGo').textContent = 'Sign in';
+      fail(/invalid|credentials/i.test(errMsg(er)) ? 'That email/mobile and password don\'t match. Use the one you first signed in with, or sign in with a code instead.' : errMsg(er));
+    }
+  };
   document.querySelectorAll('[data-o]').forEach(b => b.onclick = async () => {
     b.disabled = true;
     const { error } = await db.auth.signInWithOAuth({ provider: b.dataset.o, options: { redirectTo: location.origin + location.pathname } });
@@ -809,6 +856,14 @@ async function renderLogin(msg) {
       };
     } catch (er) { $('phGo').disabled = false; $('phGo').textContent = 'Text me a code'; fail(errMsg(er)); }
   };
+  // Password was right, but this is a new phone/computer: send a code to the same email or mobile.
+  if (opt.confirmDevice) {
+    const box = document.createElement('div'); box.className = 'note';
+    box.innerHTML = '<b>New phone or computer.</b> For your security we\'ve sent a code to ' + esc(opt.confirmDevice) + '. Enter it below to finish signing in. You only need to do this once on each device.';
+    $('lg').prepend(box);
+    if (opt.confirmDevice.includes('@') && $('emF')) { $('em').value = opt.confirmDevice; $('emF').requestSubmit(); }
+    else if (!opt.confirmDevice.includes('@') && $('phF')) { $('ph').value = opt.confirmDevice.replace(/^\+64/, '0'); $('phF').requestSubmit(); }
+  }
 }
 
 function renderNoMatch(msg) {
@@ -847,7 +902,7 @@ function renderNoMatch(msg) {
     } catch (er) { fail(errMsg(er)); }
   };
 }
-async function signOut() { await db.auth.signOut(); S.me = null; renderLogin(); }
+async function signOut() { try { await db.rpc('log_event', { p_kind: 'signed_out', p_detail: {} }); } catch (e) {} await db.auth.signOut(); S.me = null; renderLogin(); }
 
 // ---------- data ----------
 async function load() {
@@ -1672,12 +1727,31 @@ function viewMe() {
     <div class="card"><h2>Reminders</h2><p class="muted">We email you about your bookings and when your service is due.</p>
       <label class="chk"><input type="checkbox" id="smsOn" ${S.me.sms_reminders ? 'checked' : ''}> Also text me on the morning of each booking</label>
       ${S.me.email ? '' : '<p class="muted">We have no email for you, so we text you anyway.</p>'}</div>
+    <div class="card" id="pwCard"><h2>Password</h2>
+      <p class="muted">${S.user?.user_metadata?.pw_set ? 'You have a password. You can sign in with it, or with a code like before.' : 'Set a password to sign in without waiting for a code. Codes still work too.'}
+        On a new phone or computer we'll still send a code the first time, to check it's you.</p>
+      <form id="pwSetF"><label class="f" for="pwN1">${S.user?.user_metadata?.pw_set ? 'New password' : 'Password'}</label><input id="pwN1" type="password" autocomplete="new-password" minlength="8" required>
+        <label class="f" for="pwN2">Type it again</label><input id="pwN2" type="password" autocomplete="new-password" minlength="8" required>
+        <div id="pwErr" class="note bad" hidden></div><button class="btn">${S.user?.user_metadata?.pw_set ? 'Change password' : 'Set password'}</button></form>
+      <p class="muted">Sign in with <b>${esc(S.user?.email || (S.user?.phone ? '+' + String(S.user.phone).replace(/^\+/, '') : 'the email or mobile you used'))}</b> and your password.</p></div>
     ${signedDocsCard()}
     ${homeScreenCard(false)}
     <div class="card"><button class="btn ghost" id="out" style="margin-top:0">Sign out</button><p class="muted" style="text-align:center"><a href="../privacy/">Privacy policy</a></p></div>
     <p class="muted" style="text-align:center;font-size:.75rem">build 2026-11-19 19:43 UTC</p>`;
   $('out').onclick = signOut;
   wireHomeScreen(); wireSignedDocs();
+  $('pwSetF').onsubmit = async ev => {
+    ev.preventDefault();
+    const a = $('pwN1').value, b = $('pwN2').value, say = m => { $('pwErr').textContent = m; $('pwErr').hidden = false; };
+    if (a.length < 8) return say('Use at least 8 characters');
+    if (a !== b) return say('The two passwords don\'t match');
+    if (/^(password|12345678|qwerty)/i.test(a)) return say('That password is too easy to guess');
+    const { data, error } = await db.auth.updateUser({ password: a, data: { pw_set: true } });
+    if (error) return say(/reauth|recent|nonce/i.test(errMsg(error)) ? 'For your security, sign out, sign back in with a code, then set your password straight away.' : /weak|short|pwned|leak/i.test(errMsg(error)) ? 'Please choose a stronger password (mix letters and numbers, at least 8).' : errMsg(error));
+    if (data?.user) S.user = data.user;
+    db.rpc('log_event', { p_kind: 'password_set', p_detail: {} }).then(() => {});
+    reload('Password saved');
+  };
   $('smsOn').onchange = async () => {
     const on = $('smsOn').checked; $('smsOn').disabled = true;
     const { error } = await db.rpc('set_sms_reminders', { p_on: on });
