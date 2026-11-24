@@ -831,7 +831,8 @@ function render() {
 }
 
 function profileFlag(c, b) {
-  return [PR(c.id) ? 'Price request waiting' : '', c.self_registered ? 'New app sign-up — check details' : '', profileFlag0(c, b)].filter(Boolean).join(' · ');
+  const due = b ? [...(b.owing || []), ...(b.bill && b.bill.status === 'sent' ? [b.bill] : [])].reduce((a, x) => a + x.amount_cents, 0) : 0;
+  return [due ? `Owes ${money(due / 100)}` : '', PR(c.id) ? 'Price request waiting' : '', c.self_registered ? 'New app sign-up — check details' : '', profileFlag0(c, b)].filter(Boolean).join(' · ');
 }
 function profileFlag0(c, b) {
   if (b.kind === 'removal') {
@@ -1125,14 +1126,20 @@ async function setNextDue(b, normal, due) {
 function billBox(b, paid) {
   const via = x => x.sent_via === 'sms' ? 'text' : 'email';
   let h = (b.owing || []).map(x => `<div class="alert" style="background:var(--warn-soft);color:var(--ink)">Owes ${money(x.amount_cents / 100)} — ${esc(x.description)}. Bill sent ${billDay(x.created_at)}, not paid yet.
-      <div style="margin-top:6px"><button class="chip" data-bcancel="${x.id}">Paid here / cancel bill</button></div></div>`).join('');
+      <div style="display:flex;gap:6px;margin-top:6px">${paid ? '' : addBillBtn(x)}<button class="chip" data-bcancel="${x.id}">Cancel bill</button></div></div>`).join('');
   if (b.bill && b.bill.status === 'sent') h += `<div class="alert" style="background:var(--warn-soft);color:var(--ink)">${money(b.bill.amount_cents / 100)} bill sent by ${via(b.bill)} ${billDay(b.bill.created_at)} — not paid yet.
-      <div style="display:flex;gap:6px;margin-top:6px"><button class="chip" id="nsBill">Send again</button><button class="chip" data-bcancel="${b.bill.id}">Cancel bill</button></div></div>`;
+      <div style="display:flex;gap:6px;margin-top:6px">${paid ? '' : addBillBtn(b.bill)}<button class="chip" id="nsBill">Send again</button><button class="chip" data-bcancel="${b.bill.id}">Cancel bill</button></div></div>`;
   else if (b.status === 'no_show' && !paid) h += `<div style="margin-top:8px"><button class="btn" id="nsBill" style="width:100%">Send ${money(NO_SHOW_FEE)} no-show bill</button>
       <div class="empty">Emails them a link to pay online by card (text if no email).</div></div>`;
   return h;
 }
+// an unpaid bill can be paid on the spot: it goes on this sale as its own line, and is marked paid once the sale is paid
+const addBillBtn = x => S.extras.some(e => e.bill === x.id) ? '<span class="pill p-completed">On this sale</span>' : `<button class="chip" data-baddx="${x.id}" style="font-weight:700">+ Add to this sale</button>`;
 function wireBills(el, b, after) {
+  el.querySelectorAll('[data-baddx]').forEach(x => x.onclick = () => {
+    const bl = [...(b.owing || []), b.bill].find(y => y && y.id === x.dataset.baddx); if (!bl) return;
+    S.extras.push({ n: bl.description, q: 1, p: bl.amount_cents / 100, bill: bl.id }); renderSide();
+  });
   const ns = $('nsBill');
   if (ns) ns.onclick = async () => {
     ns.disabled = true;
@@ -1478,6 +1485,11 @@ async function takePayment(b, method, total, creditUse = 0) {
   const { error } = await db.from('payments').insert({ ...back, booking_id: b.id, customer_id: b.customer_id, amount_cents: Math.round(total * 100), method,
     provider_ref: !S.extras.length ? null : S.extras.every(x => typeof x === 'string') ? 'extras:' + S.extras.join(',') : 'extras2:' + JSON.stringify(S.extras) });
   if (error) { document.querySelectorAll('[data-pay]').forEach(x => x.disabled = false); return toast(errMsg(error), true); }
+  const billIds = S.extras.filter(x => x && x.bill).map(x => x.bill);
+  if (billIds.length) {
+    const r = await db.from('bills').update({ status: 'paid', paid_at: new Date().toISOString(), stripe_ref: 'in person' }).in('id', billIds).eq('status', 'sent');
+    if (r.error) toast('Paid, but the bill could not be marked paid: ' + errMsg(r.error), true);
+  }
   if (creditUse > 0) {
     const r = await db.from('customer_credits').insert({ customer_id: b.customer_id, booking_id: b.id, amount_cents: -Math.round(creditUse * 100), reason: 'Used at checkout ' + longDate(b.session_date) });
     if (r.error) toast('Paid, but the credit could not be taken off their account: ' + errMsg(r.error), true);
@@ -2040,6 +2052,22 @@ async function custActivity(c, target, back) {
 }
 
 // ---------- a customer's bookings: everything coming up + the last few ----------
+// What this customer owes: unpaid bills (no-show fees etc). Reminders go out automatically (see step8 SQL).
+async function owingPanel(box, c) {
+  if (!box) return;
+  const { data, error } = await db.from('bills').select('*').eq('customer_id', c.id).eq('status', 'sent').order('created_at');
+  if (error || !data || !data.length) { box.innerHTML = ''; return; }
+  const tot = data.reduce((a, x) => a + x.amount_cents, 0) / 100;
+  box.innerHTML = `<div class="alert" style="background:var(--bad-soft);color:var(--ink);margin-top:8px"><b>Owes ${money(tot)}</b>
+    ${data.map(x => `<div class="co-line" style="margin-top:4px"><span>${esc(x.description)}<br><span class="empty">Bill sent ${billDay(x.created_at)}${x.remind_count ? ` · ${x.remind_count} reminder${x.remind_count > 1 ? 's' : ''}, last ${billDay(x.reminded_at)}` : ' · reminder goes the morning after'}</span></span>
+      <span class="t">${money(x.amount_cents / 100)} <button class="chip" data-owc="${x.id}" style="padding:0 8px">Cancel</button></span></div>`).join('')}
+    <div class="empty" style="margin-top:6px">To take it now: <b>+ New sale</b> (Labour / other, or with whatever else they're having), then <b>+ Add to this sale</b> at checkout. They can also pay online from the link in their bill or the app.</div></div>`;
+  box.querySelectorAll('[data-owc]').forEach(x => x.onclick = async () => {
+    if (!confirm('Cancel this bill? They will no longer be able to pay it online or be reminded.')) return;
+    const { error } = await db.rpc('cancel_bill', { p_bill: x.dataset.owc }); if (error) return toast(errMsg(error), true);
+    toast('Bill cancelled'); owingPanel(box, c);
+  });
+}
 async function custBookings(box, c) {
   if (!box) return;
   const today = nzToday();
@@ -2075,6 +2103,7 @@ function editCustomer(c, target = 'cside', after = renderCustomers) {
       ${c.training_requested_at ? `<span class="empty">Sent ${new Date(c.training_requested_at).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', timeZone: 'Pacific/Auckland' })}, not signed yet</span><button class="chip" id="trUnsend">Stop asking</button>` : '<span class="empty">Video, checklist and signature. They are only asked once you send it.</span>'}</div>`}
     <div style="margin-top:8px;display:flex;gap:6px"><button class="btn" id="nsOpen" style="flex:1">+ New sale</button><button class="btn ghost" id="actOpen" style="flex:2">Activity — sign-ins, devices, changes and messages</button></div>
     <div id="nsBox"></div>
+    <div id="owBox"></div>
     <div id="bkBox" style="margin-top:8px"></div>
     <div id="sdBox" data-cust="${esc(c.id)}" style="margin-top:8px"></div>
     ${priceReqBox(c)}
@@ -2098,6 +2127,7 @@ function editCustomer(c, target = 'cside', after = renderCustomers) {
     <div id="credBox" style="margin-top:16px;border-top:1px solid var(--line);padding-top:10px"></div>`;
   loadVehicles(c);
   custBookings($('bkBox'), c);
+  owingPanel($('owBox'), c);
   $('nsOpen').onclick = () => {
     if ($('nsF')) { $('nsBox').innerHTML = ''; return; }
     const home = locations.some(l => l.id === c.home_location_id) ? c.home_location_id : 'mobile';
